@@ -3,6 +3,9 @@ import { Prisma } from '@prisma/client';
 import { db } from './db';
 import { categorize } from './state';
 import { chargeDay, engineInterest, matchFile, type Read } from './importer';
+import { rateInEffect } from './rates';
+
+export { rateInEffect };
 
 export type Dest = { kind: 'split'; id: string; loanId: string; name: string; offset: boolean; postingDay: number | null; dayCount: number } | { kind: 'account'; id: string; name: string };
 
@@ -33,13 +36,6 @@ export async function guessDest(userId: string, householdId: string, lenderName:
     return scored[0].d.id;
   }
   return c[0]?.id || '';
-}
-
-/** The rate in effect on a day: the latest known change on or before it (confirmed or not), else the loan's own rate. */
-export function rateInEffect(startRate: number, known: { date: Date; rate: number }[], day: Date) {
-  let r = startRate, at = -Infinity;
-  for (const c of known) if (+c.date <= +day && +c.date >= at) { r = c.rate; at = +c.date; }
-  return r;
 }
 
 /** Folio's interest check for a statement on a loan split without an offset. Used on import and by Check again. */

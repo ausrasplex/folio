@@ -1,5 +1,6 @@
 import { type Action, type Ctx, canEdit, d, db, hh, money, need, str } from '../actions';
 import { enc } from '../crypto';
+import { startRateOffers, tidyRateRepeats } from '../rates';
 
 const FREQ: Record<string, 'WEEKLY' | 'FORTNIGHTLY' | 'MONTHLY'> = { weekly: 'WEEKLY', fortnightly: 'FORTNIGHTLY', monthly: 'MONTHLY' };
 
@@ -146,6 +147,25 @@ export const loanActions: Record<string, Action> = {
     await db.rateChange.update({ where: { id: rc!.id }, data: { confirmed: true } });
   },
 
+  /** Takes a split's starting rate from its first statement. The rate typed in when the loan was added is kept as a
+   *  confirmed change on the day it was added, since it was the rate then. */
+  useStartRate: async (c) => {
+    const sp = await mySplit(c, c.p.id);
+    const offer = (await startRateOffers([sp.id])).get(sp.id);
+    need(offer, 'There is no starting rate to take from a statement for this split.');
+    const added = new Date(Date.UTC(sp.createdAt.getUTCFullYear(), sp.createdAt.getUTCMonth(), sp.createdAt.getUTCDate()));
+    const typed = Number(sp.startRate);
+    const already = await db.rateChange.findFirst({ where: { splitId: sp.id, deletedAt: null, rate: typed, effectiveDate: { gte: new Date(+added - 3 * 86400000), lte: new Date(+added + 3 * 86400000) } } });
+    if (!already) await db.rateChange.create({ data: { splitId: sp.id, effectiveDate: added, rate: typed, confirmed: true, source: 'setup' } });
+    await db.loanSplit.update({ where: { id: sp.id }, data: { startRate: offer!.rate, startRateFrom: 'statement' } });
+    const tidied = await tidyRateRepeats(sp.id);
+    return { rate: offer!.rate, kept: typed, tidied };
+  },
+  /** Keeps the rate typed in as the starting rate, and stops offering the statement's. */
+  keepStartRate: async (c) => {
+    const sp = await mySplit(c, c.p.id);
+    await db.loanSplit.update({ where: { id: sp.id }, data: { startRateFrom: 'kept' } });
+  },
   editSplit: async (c) => {
     const sp = await mySplit(c, c.p.id);
     const name = str(c.p.name, 40);

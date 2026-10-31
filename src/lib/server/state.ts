@@ -6,6 +6,7 @@ import { dec } from './crypto';
 import { currentMembership, type CurrentUser } from './auth';
 import { APP_VERSION, backupSettings, dirSize, folderPath, freeSpace } from './backup';
 import { securityRows } from './security';
+import { startRateOffers } from './rates';
 import { DAY, FREQ_WORD, num, summarize, today0, yearFrac, type SplitRow } from './loanmath';
 
 const SLOTS = ['a1', 'a2', 'a3'];
@@ -120,6 +121,8 @@ export async function buildState(u: CurrentUser) {
 
   // ----- loans
   const offsetFor = (loanId: string) => accounts.filter((a) => a.link === loanId && !a.closedIso).reduce((t, a) => t + a.balance, 0);
+  // splits whose starting rate is still the one typed in, where the first statement shows a different one
+  const startOffers = await startRateOffers(loanRows.flatMap((l) => l.splits.map((s) => s.id)));
   const loans = loanRows.map((l, i) => {
     const splits = l.splits as unknown as SplitRow[];
     const sm = summarize({ startDate: l.startDate, termYears: l.termYears, postingDay: l.postingDay, offsetOrder: l.offsetOrder, dayCount: l.lender.dayCount, splits, offsetBalance: offsetFor(l.id) });
@@ -147,7 +150,7 @@ export async function buildState(u: CurrentUser) {
       archived, closedReason: l.closedReason || '', closedAt: iso(l.closedAt), dates: monY(l.startDate) + ' – ' + (l.closedAt ? monY(l.closedAt) : ''),
       lenderSnapshot: l.lenderSnapshot, brokerSnapshot: l.brokerSnapshot,
       splits: sm.splits.map((x, k) => ({
-        id: x.s.id, name: x.s.name, suffix: x.s.accountSuffix || String(k + 1).padStart(2, '0'), kind: x.s.kind === 'FIXED' ? 'fixed' : 'variable', fixedUntil: iso(x.s.fixedUntil),
+        id: x.s.id, name: x.s.name, startOffer: startOffers.get(x.s.id) || null, suffix: x.s.accountSuffix || String(k + 1).padStart(2, '0'), kind: x.s.kind === 'FIXED' ? 'fixed' : 'variable', fixedUntil: iso(x.s.fixedUntil),
         bal: x.bal, balDate: iso(x.balDate), balFrom: x.balFrom, orig: num(x.s.openingBalance), rate: x.rate, rateSince: iso(x.rateSince), startRate: num(x.s.startRate),
         repay: x.repay, freq: FREQ_WORD[x.freq], repayDay: x.s.repayDay, anchor: iso(x.s.anchorDate), io: x.s.interestOnly,
         rates: [{ date: iso(l.startDate), rate: num(x.s.startRate), confirmed: true }].concat(x.s.rateChanges.filter((c) => !c.deletedAt).sort((a, b) => +a.effectiveDate - +b.effectiveDate).map((c) => ({ date: iso(c.effectiveDate), rate: num(c.rate), confirmed: c.confirmed, id: (c as unknown as { id: string }).id }))),
@@ -269,7 +272,7 @@ async function serverInfo() {
   };
 }
 
-type Built = { loans: { id: string; name: string; splits: { id: string; name: string; rates: { date: string; rate: number; confirmed: boolean }[] }[]; archived: boolean }[]; accounts: { id: string; name: string }[]; brokers: { id: string; name: string; reviewOn: boolean; lastReview: string; every: number; loans: string[] }[]; layouts: { id: string; name: string; lenderName: string; status: string; failed: string }[]; statements: { splitId: string | null; accountId: string | null; end: string; start: string; status: string; deletedAt: string }[]; me: { isAdmin: boolean }; prefs: Record<string, unknown> };
+type Built = { loans: { id: string; name: string; splits: { id: string; name: string; startOffer?: { rate: number; from: string; current: number } | null; rates: { date: string; rate: number; confirmed: boolean }[] }[]; archived: boolean }[]; accounts: { id: string; name: string }[]; brokers: { id: string; name: string; reviewOn: boolean; lastReview: string; every: number; loans: string[] }[]; layouts: { id: string; name: string; lenderName: string; status: string; failed: string }[]; statements: { splitId: string | null; accountId: string | null; end: string; start: string; status: string; deletedAt: string }[]; me: { isAdmin: boolean }; prefs: Record<string, unknown> };
 
 /** Alerts: worked out from the data each time (rate reviews, missing statements, rate changes, re-mapping). */
 function buildAlerts(b: Built) {
@@ -300,6 +303,11 @@ function buildAlerts(b: Built) {
     if (late > missDays) out.push({ id: 'missing-' + src.key + '-' + iso(due), title: 'Statement not imported', tag: 'Action', tagStyle: warn, text: 'The statement for ' + src.name + ' ending about ' + dLong(due) + ' has not been imported yet.', when: late + ' days late', href: '/statements', at: iso(due) });
   }
   if (on('rate')) for (const l of b.loans) for (const s of l.splits) for (const r of s.rates) if (!r.confirmed) out.push({ id: 'rate-' + s.id + '-' + r.date, title: 'Rate change to confirm', tag: 'Review', tagStyle: info, text: 'A statement for ' + l.name + ' shows ' + r.rate.toFixed(2) + '% from ' + dLong(new Date(r.date + 'T00:00:00Z')) + '. Confirm it so forecasts stay accurate.', when: dLong(new Date(r.date + 'T00:00:00Z')), href: '/loan?id=' + l.id + '#details', at: r.date });
+  // a starting rate that is still the one typed in when the loan was added, where the first statement shows another
+  if (on('rate')) for (const l of b.loans) if (!l.archived) for (const s of l.splits) if (s.startOffer) {
+    const o = s.startOffer;
+    out.push({ id: 'start-' + s.id + '-' + o.rate, title: 'Starting rate to check', tag: 'Review', tagStyle: info, text: 'The first statement for ' + l.name + (l.splits.length > 1 ? ' · ' + s.name : '') + ' shows ' + o.rate.toFixed(2) + '% from ' + dLong(new Date(o.from + 'T00:00:00Z')) + ', but Folio starts it at ' + o.current.toFixed(2) + '%, the rate when the loan was added.', when: '', href: '/loan?id=' + l.id + '#history', at: '' });
+  }
   if (on('remap')) for (const ly of b.layouts) if (ly.status === 'remap') out.push({ id: 'remap-' + ly.id + '-' + (ly.failed || ''), title: 'Layout needs re-mapping', tag: 'Review', tagStyle: info, text: 'The ' + ly.name + ' layout from ' + ly.lenderName + ' no longer matches ' + (ly.failed || 'a new statement') + '.', when: '', href: '/settings', fo: { kind: 'layout', id: ly.id }, at: '' });
   return out.sort((x, y) => (x.at < y.at ? 1 : -1));
 }

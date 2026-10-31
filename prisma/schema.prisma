@@ -220,6 +220,9 @@ model LoanSplit {
   fixedUntil     DateTime?
   openingBalance Decimal      @db.Decimal(14, 2)
   startRate      Decimal      @db.Decimal(6, 4)
+  // where startRate came from: empty for the rate typed in when the loan was added (Add a Loan asks for the rate
+  // then, not at the start); "statement" when taken from the first statement; "kept" when the person chose to keep it
+  startRateFrom  String?
   repayment      Decimal      @db.Decimal(14, 2)
   frequency      Frequency    @default(MONTHLY)
   repayDay       Int          @default(1) // weekday 0-6 for weekly/fortnightly, day of month for monthly
@@ -245,7 +248,7 @@ model RateChange {
   effectiveDate DateTime
   rate          Decimal   @db.Decimal(6, 4)
   confirmed     Boolean   @default(true)
-  source        String    @default("manual") // manual | statement
+  source        String    @default("manual") // manual | statement | setup (the rate typed in when the loan was added)
   note          String?
   createdAt     DateTime  @default(now())
   deletedAt     DateTime?
