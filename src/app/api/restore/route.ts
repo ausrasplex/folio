@@ -1,3 +1,4 @@
+import { crossSiteBlock } from '@/lib/server/origin';
 import { currentUser, twoStepBlock } from '@/lib/server/auth';
 import { readBackup, restoreBackup } from '@/lib/server/backup';
 
@@ -6,6 +7,7 @@ export const maxDuration = 600;
 
 /** Restore: step 1 (no confirm) reads the file and describes it; step 2 (confirm=RESTORE) replaces everything. Admin only. */
 export async function POST(req: Request) {
+  { const blocked = crossSiteBlock(req); if (blocked) return blocked; } // sent from another website
   const u = await currentUser();
   if (!u || !u.isAdmin) return Response.json({ error: 'Only the server admin can restore a backup.' }, { status: 403 });
   { const blocked = await twoStepBlock(u); if (blocked) return blocked; } // required two-step not on yet

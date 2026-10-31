@@ -1,9 +1,11 @@
+import { crossSiteBlock } from '@/lib/server/origin';
 import { currentUser, currentMembership, needsTwoStep, TWO_STEP_ACTIONS, TWO_STEP_NEEDED } from '@/lib/server/auth';
 import { ACTIONS, Fail } from '@/lib/server/actions';
 
 export const dynamic = 'force-dynamic';
 
 export async function POST(req: Request) {
+  { const blocked = crossSiteBlock(req); if (blocked) return blocked; } // sent from another website
   const u = await currentUser();
   if (!u) return Response.json({ error: 'Sign in again' }, { status: 401 });
   let body: { kind?: string; payload?: Record<string, unknown> };

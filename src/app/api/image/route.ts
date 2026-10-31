@@ -1,3 +1,4 @@
+import { crossSiteBlock } from '@/lib/server/origin';
 import { currentUser, twoStepBlock } from '@/lib/server/auth';
 import { Fail } from '@/lib/server/actions';
 import { fetchImage } from '@/lib/server/imagefetch';
@@ -6,6 +7,7 @@ export const dynamic = 'force-dynamic';
 
 /** Downloads an image from a pasted link. The screen resizes it and saves it like an uploaded file. */
 export async function POST(req: Request) {
+  { const blocked = crossSiteBlock(req); if (blocked) return blocked; } // sent from another website
   const u = await currentUser();
   if (!u) return Response.json({ error: 'Sign in again' }, { status: 401 });
   { const blocked = await twoStepBlock(u); if (blocked) return blocked; } // required two-step not on yet

@@ -1,3 +1,4 @@
+import { crossSiteBlock } from '@/lib/server/origin';
 import { currentMembership, currentUser, twoStepBlock } from '@/lib/server/auth';
 import { db } from '@/lib/server/db';
 import { matchFile } from '@/lib/server/importer';
@@ -8,6 +9,7 @@ export const maxDuration = 60;
 
 /** Upload a statement: it is stored, read and matched. With autoSave and a destination it is saved when everything checks out. */
 export async function POST(req: Request) {
+  { const blocked = crossSiteBlock(req); if (blocked) return blocked; } // sent from another website
   const u = await currentUser();
   if (!u) return Response.json({ error: 'Sign in again' }, { status: 401 });
   { const blocked = await twoStepBlock(u); if (blocked) return blocked; } // required two-step not on yet
