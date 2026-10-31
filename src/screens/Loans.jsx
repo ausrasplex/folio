@@ -153,7 +153,7 @@ class Screen extends DCBase {
     const nowD = new Date();
     const nowT = nowD.getFullYear() + (nowD.getMonth() + nowD.getDate() / 31) / 12;
     const loans = (this.data.loans || []).map((l) => Object.assign({}, l, {
-      splits: l.splits.length, next: l.next ? fmtD(new Date(l.next)) : '', people: l.people.map((p) => p.i), peopleSlots: l.people.map((p) => p.slot)
+      splits: l.splits.length, benefits: l.splits.flatMap((s) => (s.statements || []).map((x) => x.benefit || 0)).filter((x) => x > 0), next: l.next ? fmtD(new Date(l.next)) : '', people: l.people.map((p) => p.i), peopleSlots: l.people.map((p) => p.slot)
     }));
     let shown = loans.filter((l) => filter === 'all' || (filter === 'joint' && l.joint) || (filter === 'mine' && !l.joint));
     shown = shown.slice().sort((a, b) => sort === 'bal' ? b.bal - a.bal : a.pEnd - b.pEnd);
@@ -191,20 +191,26 @@ class Screen extends DCBase {
     const accounts = (this.data.accounts || []).map((a) => ({ name: a.name, balance: a.balance, offsetFor: a.link }));
     const shownIds = shown.map((l) => l.id);
     const linked = accounts.filter((a) => a.offsetFor && shownIds.indexOf(a.offsetFor) >= 0);
-    const OFFSETS = linked.reduce((t, a) => t + a.balance, 0);
-    const linkedTxt = linked.length === 1 ? linked[0].name : linked.length + ' linked accounts';
+    // each loan's offset as the server works it out: its linked accounts, or for a loan with none, the balance its statements' offset benefit implies
+    const OFFSETS = shown.reduce((t, l) => t + (l.offset || 0), 0);
+    const estimated = shown.filter((l) => l.offsetEst);
+    const linkedTxt = [linked.length ? (linked.length === 1 ? linked[0].name : linked.length + ' linked accounts') : '', estimated.length ? 'estimated from statements' : ''].filter(Boolean).join(' and ');
     const intYear = shown.reduce((t, l) => t + l.bal * l.rNum / 100 * Math.max(0, nowT - Math.floor(nowT)), 0);
     const perMonth = shown.reduce((t, l) => { const n = Number(String(l.repay).replace(/[^0-9.]/g, '')); return t + (/weekly/.test(l.repay) ? n * 52 / 12 : /fortnightly/.test(l.repay) ? n * 26 / 12 : n); }, 0);
+    // interest the offsets have saved so far: the offset benefit printed on each statement
+    const benefits = shown.flatMap((l) => l.benefits);
+    const savedToDate = benefits.reduce((t, x) => t + x, 0);
     const archived = (this.data.archivedLoans || []).map((l, k) => ({ name: l.name, lender: l.lender, dates: l.dates, status: l.closedReason || 'Archived', href: '/loan?id=' + l.id,
       icon: 'flex:none;width:40px;height:40px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--onA);background:var(--' + ['a3', 'a1', 'a2'][k % 3] + ')', iconText: (l.lender || '?').charAt(0) }));
     const heroPool = {
       total: { title: 'Total owing', value: money(total), sub: repaidPct + '% of ' + money(orig) + ' repaid', pct: repaidPct + '%' },
-      net: { title: 'Owing after offsets', value: money(total - OFFSETS), sub: linked.length ? money(OFFSETS) + ' in ' + linkedTxt : 'No linked offset accounts', pct: '100%' },
+      net: { title: 'Owing after offsets', value: money(total - OFFSETS), sub: OFFSETS ? money(OFFSETS) + (linked.length ? ' in ' : ', ') + linkedTxt : 'No linked offset accounts', pct: '100%' },
       first: { title: 'First paid off', value: first.payoff, sub: first.name, pct: '100%' },
       debtfree: { title: 'Debt-free', value: last.payoff, sub: last.name + ' is last', pct: '100%' },
-      offsets: { title: 'Offset balance', value: money(OFFSETS), sub: linked.length ? linkedTxt : 'No linked offset accounts', pct: '100%' },
+      offsets: { title: 'Offset balance', value: money(OFFSETS), sub: OFFSETS ? linkedTxt.charAt(0).toUpperCase() + linkedTxt.slice(1) : 'No linked offset accounts', pct: '100%' },
       repay: { title: 'Repayments a month', value: money(perMonth), sub: 'All loans, at current amounts', pct: '100%' },
-      interest: { title: 'Interest this year', value: money(intYear), sub: 'All loans', pct: '100%', est: true }
+      interest: { title: 'Interest this year', value: money(intYear), sub: 'All loans', pct: '100%', est: true },
+      saved: { title: 'Interest saved to date', value: money(savedToDate), sub: benefits.length ? 'Offset benefit on ' + benefits.length + (benefits.length > 1 ? ' statements' : ' statement') : 'No offset benefit on your statements yet', pct: '100%' }
     };
     let heroSel = st.heroSel;
     if (!heroSel) { { const v = ((this.data.me || {}).prefs || {}).loansHeroCards; if (Array.isArray(v) && v.length === 3 && v.every((k) => heroPool[k])) heroSel = v; } }
