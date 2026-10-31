@@ -133,7 +133,7 @@ export async function buildState(u: CurrentUser) {
   const startOffers = await startRateOffers(loanRows.flatMap((l) => l.splits.map((s) => s.id)));
   const loans = loanRows.map((l, i) => {
     const splits = l.splits as unknown as SplitRow[];
-    const sm = summarize({ startDate: l.startDate, termYears: l.termYears, postingDay: l.postingDay, offsetOrder: l.offsetOrder, dayCount: l.lender.dayCount, splits, offsetBalance: offsetFor(l.id) });
+    const sm = summarize({ startDate: l.startDate, termYears: l.termYears, postingDay: l.postingDay, offsetOrder: l.offsetOrder, dayCount: l.lender.dayCount, splits, offsetBalance: Math.round(offsetFor(l.id)) }); // whole dollars, as the loan page projects it
     const people = l.borrowers.map((b) => ({ id: b.userId, i: initials(b.user.displayName), name: b.user.displayName, slot: slotOf[b.userId] || 'a1' }));
     const fixed = sm.splits.filter((x) => x.s.kind === 'FIXED' && x.s.fixedUntil && x.s.fixedUntil > now).sort((a, b) => +a.s.fixedUntil! - +b.s.fixedUntil!)[0];
     const fx = fixed ? fixed.s.fixedUntil : null;
