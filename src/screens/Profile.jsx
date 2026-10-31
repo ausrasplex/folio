@@ -51,6 +51,13 @@ class Screen extends DCBase {
       if (s !== this._scrolled) { this._scrolled = s; this.setState({ scrolled: s }); }
     };
     try { window.addEventListener('scroll', this._onScroll, { passive: true }); } catch (e) {}
+    // sent here because the server requires two-step: open its set-up straight away
+    try {
+      if (/[?&]setup=twostep(&|$)/.test(window.location.search) && !(this.data.me || {}).totpOn) {
+        this.flash('This server needs two-step verification. Turn it on to keep using Folio.');
+        this.run('tfaStart', {}).then((r) => { if (r) this.setState({ setup: r, tfaStep: 1, tfaCode: '', tfaTried: false }); });
+      }
+    } catch (e) {}
   }
   componentWillUnmount() {
     try { window.removeEventListener('storage', this._onStorage); } catch (e) {}

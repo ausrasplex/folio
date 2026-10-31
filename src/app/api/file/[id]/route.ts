@@ -1,4 +1,4 @@
-import { currentMembership, currentUser } from '@/lib/server/auth';
+import { currentMembership, currentUser, twoStepBlock } from '@/lib/server/auth';
 import { myFile } from '@/lib/server/visible';
 
 export const dynamic = 'force-dynamic';
@@ -7,6 +7,7 @@ export const dynamic = 'force-dynamic';
 export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }) {
   const u = await currentUser();
   if (!u) return new Response('Sign in again', { status: 401 });
+  { const blocked = await twoStepBlock(u); if (blocked) return blocked; } // required two-step not on yet
   const { m } = await currentMembership(u);
   if (!m) return new Response('Not found', { status: 404 });
   const { id } = await ctx.params;

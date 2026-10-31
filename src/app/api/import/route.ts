@@ -1,4 +1,4 @@
-import { currentMembership, currentUser } from '@/lib/server/auth';
+import { currentMembership, currentUser, twoStepBlock } from '@/lib/server/auth';
 import { db } from '@/lib/server/db';
 import { matchFile } from '@/lib/server/importer';
 import { guessDest, saveImport } from '@/lib/server/imports';
@@ -10,6 +10,7 @@ export const maxDuration = 60;
 export async function POST(req: Request) {
   const u = await currentUser();
   if (!u) return Response.json({ error: 'Sign in again' }, { status: 401 });
+  { const blocked = await twoStepBlock(u); if (blocked) return blocked; } // required two-step not on yet
   const { m } = await currentMembership(u);
   if (!m) return Response.json({ error: 'You are not in a household yet.' }, { status: 400 });
   const fd = await req.formData();

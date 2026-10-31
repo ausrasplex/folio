@@ -81,6 +81,27 @@ export async function currentUser(allowPending = false) {
 
 export type CurrentUser = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 
+// ----- required two-step verification (Server tab)
+/** Where someone goes to turn on two-step when the server requires it. */
+export const TWO_STEP_PAGE = '/profile?setup=twostep';
+/** The only actions that work until then: setting up two-step, and the theme (saved by every screen). */
+export const TWO_STEP_ACTIONS = new Set(['tfaStart', 'tfaVerify', 'theme']);
+export const TWO_STEP_NEEDED = 'This server needs two-step verification. Turn it on in your profile first.';
+
+/** Whether the admin requires two-step verification for everyone. */
+export async function twoStepRequired() {
+  const s = await db.serverSetting.findUnique({ where: { key: 'requireTwoStep' } });
+  return s?.value === true;
+}
+/** Signed in without two-step while the server requires it: only Profile and the set-up actions work until it is on. */
+export async function needsTwoStep(u: { totpOn: boolean }) {
+  return !u.totpOn && (await twoStepRequired());
+}
+/** For API routes: a 403 to send while two-step still has to be turned on, else null. */
+export async function twoStepBlock(u: { totpOn: boolean }) {
+  return (await needsTwoStep(u)) ? Response.json({ error: TWO_STEP_NEEDED }, { status: 403 }) : null;
+}
+
 /** Membership in the household the person is looking at (first active one if none chosen). */
 export async function currentMembership(u: CurrentUser) {
   const ms = await db.membership.findMany({ where: { userId: u.id, removedAt: null, household: { deletedAt: null } }, include: { household: true }, orderBy: { joinedAt: 'asc' } });

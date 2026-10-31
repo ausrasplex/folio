@@ -1,4 +1,4 @@
-import { currentUser } from '@/lib/server/auth';
+import { currentUser, twoStepBlock } from '@/lib/server/auth';
 import { readBackup, restoreBackup } from '@/lib/server/backup';
 
 export const dynamic = 'force-dynamic';
@@ -8,6 +8,7 @@ export const maxDuration = 600;
 export async function POST(req: Request) {
   const u = await currentUser();
   if (!u || !u.isAdmin) return Response.json({ error: 'Only the server admin can restore a backup.' }, { status: 403 });
+  { const blocked = await twoStepBlock(u); if (blocked) return blocked; } // required two-step not on yet
   const fd = await req.formData();
   const f = fd.get('file');
   if (!(f instanceof File)) return Response.json({ error: 'Choose a backup file' }, { status: 400 });

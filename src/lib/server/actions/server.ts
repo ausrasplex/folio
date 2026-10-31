@@ -15,6 +15,11 @@ export const serverActions: Record<string, Action> = {
     const p = c.p;
     if ('signup' in p) await set('signup', p.signup === 'closed' ? 'closed' : 'invite');
     if ('allowOutside' in p) await set('allowOutside', !!p.allowOutside);
+    if ('requireTwoStep' in p) {
+      // the admin turns it on for themselves first, so this cannot lock them out of their own settings
+      if (p.requireTwoStep) need(c.u.totpOn, 'Turn on two-step verification for your own account first, in your profile.');
+      await set('requireTwoStep', !!p.requireTwoStep);
+    }
     if (p.backups && typeof p.backups === 'object') {
       const cur = await backupSettings();
       const b = p.backups as Record<string, unknown>;

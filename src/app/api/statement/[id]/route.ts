@@ -1,4 +1,4 @@
-import { currentMembership, currentUser } from '@/lib/server/auth';
+import { currentMembership, currentUser, twoStepBlock } from '@/lib/server/auth';
 import { db } from '@/lib/server/db';
 import { myStatements } from '@/lib/server/visible';
 
@@ -9,6 +9,7 @@ const n = (v: unknown) => (v == null ? null : Number(v));
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const u = await currentUser();
   if (!u) return Response.json({ error: 'Sign in again' }, { status: 401 });
+  { const blocked = await twoStepBlock(u); if (blocked) return blocked; } // required two-step not on yet
   const { m } = await currentMembership(u);
   if (!m) return Response.json({ error: 'Not found' }, { status: 404 });
   const { id } = await ctx.params;

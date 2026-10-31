@@ -1,5 +1,5 @@
 import JSZip from 'jszip';
-import { currentMembership, currentUser } from '@/lib/server/auth';
+import { currentMembership, currentUser, twoStepBlock } from '@/lib/server/auth';
 import { db } from '@/lib/server/db';
 import { myStatements } from '@/lib/server/visible';
 
@@ -11,6 +11,7 @@ const day = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : '');
 export async function GET(req: Request) {
   const u = await currentUser();
   if (!u) return new Response('Sign in again', { status: 401 });
+  { const blocked = await twoStepBlock(u); if (blocked) return blocked; } // required two-step not on yet
   const { m } = await currentMembership(u);
   if (!m) return new Response('Not found', { status: 404 });
   const sp = new URL(req.url).searchParams;

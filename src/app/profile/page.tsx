@@ -4,6 +4,6 @@ import { guard } from '@/lib/server/guard';
 export const dynamic = 'force-dynamic';
 
 export default async function Page() {
-  await guard();
+  await guard({ twoStepSetup: true });
   return <ScreenHost name="Profile" />;
 }

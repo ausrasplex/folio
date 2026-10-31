@@ -1,6 +1,6 @@
 import { promises as fs } from 'fs';
 import path from 'path';
-import { currentUser } from '@/lib/server/auth';
+import { currentUser, twoStepBlock } from '@/lib/server/auth';
 import { db } from '@/lib/server/db';
 import { backupSettings, folderPath } from '@/lib/server/backup';
 
@@ -10,6 +10,7 @@ export const dynamic = 'force-dynamic';
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
   const u = await currentUser();
   if (!u || !u.isAdmin) return new Response('Not found', { status: 404 });
+  { const blocked = await twoStepBlock(u); if (blocked) return blocked; } // required two-step not on yet
   const { id } = await ctx.params;
   const b = await db.backup.findUnique({ where: { id } });
   if (!b) return new Response('Not found', { status: 404 });

@@ -1,4 +1,4 @@
-import { currentUser } from '@/lib/server/auth';
+import { currentUser, twoStepBlock } from '@/lib/server/auth';
 import { Fail } from '@/lib/server/actions';
 import { fetchImage } from '@/lib/server/imagefetch';
 
@@ -8,6 +8,7 @@ export const dynamic = 'force-dynamic';
 export async function POST(req: Request) {
   const u = await currentUser();
   if (!u) return Response.json({ error: 'Sign in again' }, { status: 401 });
+  { const blocked = await twoStepBlock(u); if (blocked) return blocked; } // required two-step not on yet
   let body: { url?: string };
   try { body = await req.json(); } catch { return Response.json({ error: 'Bad request' }, { status: 400 }); }
   try {
