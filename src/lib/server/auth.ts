@@ -5,7 +5,21 @@ import { sha256, token } from './crypto';
 import { clientIpFrom } from './clientip';
 
 export const COOKIE = 'folio_session';
+// Over HTTPS the cookie is __Host- prefixed: browsers then only accept it when it is Secure, set by this host and for the whole site.
+export const SECURE_COOKIE = '__Host-folio_session';
 const DAYS = 30;
+
+/** Whether this request arrived over HTTPS, for the session cookie. FOLIO_SECURE_COOKIE=false forces a plain cookie
+ *  (HTTP on the home network) and true forces a Secure one. Otherwise: FOLIO_URL is https, or a trusted proxy says so
+ *  (x-forwarded-proto is ignored without FOLIO_TRUST_PROXY, since anyone can send it). */
+export function isHttps(h: { get(name: string): string | null }, env: Record<string, string | undefined> = process.env) {
+  if (env.FOLIO_SECURE_COOKIE === 'false') return false;
+  if (env.FOLIO_SECURE_COOKIE === 'true') return true;
+  if (/^https:\/\//i.test(env.FOLIO_URL || '')) return true;
+  return env.FOLIO_TRUST_PROXY === 'true' && (h.get('x-forwarded-proto') || '').split(',')[0].trim().toLowerCase() === 'https';
+}
+/** The session cookie's name and Secure flag for this request. */
+async function cookieMode() { const secure = isHttps(await headers()); return { name: secure ? SECURE_COOKIE : COOKIE, secure }; }
 
 export async function hashPassword(p: string) { return bcrypt.hash(p, 11); }
 export async function checkPassword(p: string, h: string) { return bcrypt.compare(p, h); }
@@ -28,20 +42,24 @@ export async function startSession(userId: string, pending2fa = false) {
   const t = token(32);
   const h = await headers();
   await db.session.create({ data: { id: sha256(t), userId, pending2fa, userAgent: (h.get('user-agent') || '').slice(0, 300), ip: await requestIp() } });
-  (await cookies()).set(COOKIE, t, { httpOnly: true, sameSite: 'lax', path: '/', maxAge: DAYS * 86400, secure: process.env.FOLIO_SECURE_COOKIE === 'true' });
+  const mode = await cookieMode();
+  (await cookies()).set(mode.name, t, { httpOnly: true, sameSite: 'lax', path: '/', maxAge: DAYS * 86400, secure: mode.secure });
   return t;
 }
 
 export async function endSession() {
   const c = await cookies();
-  const t = c.get(COOKIE)?.value;
+  const t = c.get((await cookieMode()).name)?.value;
   if (t) await db.session.deleteMany({ where: { id: sha256(t) } });
   c.delete(COOKIE);
+  // a __Host- cookie is only removed by an expired copy that is itself Secure and for the whole site
+  c.set(SECURE_COOKIE, '', { httpOnly: true, sameSite: 'lax', path: '/', maxAge: 0, secure: true });
 }
 
 /** The signed-in person, or null. Pass allowPending for the two-step code page. */
 export async function currentUser(allowPending = false) {
-  const t = (await cookies()).get(COOKIE)?.value;
+  // only the cookie for this request's mode counts, so a plain-HTTP cookie cannot be slipped into an HTTPS session
+  const t = (await cookies()).get((await cookieMode()).name)?.value;
   if (!t) return null;
   const s = await db.session.findUnique({ where: { id: sha256(t) }, include: { user: true } });
   if (!s) return null;
