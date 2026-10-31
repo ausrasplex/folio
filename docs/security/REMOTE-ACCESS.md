@@ -104,3 +104,58 @@ FOLIO_CF_ACCESS_LAN_BYPASS="true"
 Requests without the header are then allowed only from your home network or VPN. Everything else still needs the Access sign-in.
 
 Restart Folio. Check it: `https://folio.yourdomain.com` works after the Cloudflare sign-in, and with the bypass off, opening Folio at its home address shows "Open Folio through its Cloudflare address".
+
+## Authelia with a Reverse Proxy
+
+Authelia is a login page you run yourself. Your reverse proxy (here Nginx Proxy Manager, as in [HTTPS at Home](HTTPS-AT-HOME.md)) asks Authelia about every request, and only sends signed-in ones on to Folio. Unlike Cloudflare, nothing passes through anyone else's servers, but you open port 443 on your router to NPM and keep NPM and Authelia up to date yourself.
+
+Set up [HTTPS at Home](HTTPS-AT-HOME.md) first: it covers the certificate, the proxy host and closing Folio's side door, all of which this builds on.
+
+### 1. Run Authelia
+
+1. Install the **Authelia** container from Community Applications and put it on the same Docker network as NPM and Folio (`folio-proxy`).
+2. In its `configuration.yml`, set at least:
+   ```yaml
+   session:
+     cookies:
+       - domain: yourdomain.com
+         authelia_url: https://auth.yourdomain.com
+   authentication_backend:
+     file:
+       path: /config/users_database.yml
+   access_control:
+     default_policy: deny
+     rules:
+       - domain: folio.yourdomain.com
+         policy: two_factor   # or one_factor: a password only
+   ```
+   plus the storage, notifier and secrets sections from Authelia's own getting-started guide.
+3. Add yourself to `users_database.yml`, with a password hash made by `authelia crypto hash generate argon2`.
+4. **two_factor** (recommended) asks for an authenticator code or security key on top of the password, the first time on each device.
+
+### 2. Put NPM in front of both
+
+1. Forward port **443** on your router to NPM, and nothing else. Never forward Folio's port (3000) or Postgres (5432).
+2. In NPM, make sure your certificate covers `auth.yourdomain.com` and `folio.yourdomain.com` (the wildcard from [HTTPS at Home, Step 2](HTTPS-AT-HOME.md#step-2-get-a-wildcard-certificate-in-npm) does). Add both names to your public DNS at Cloudflare, pointing at your home's public address.
+3. Add a proxy host for `auth.yourdomain.com`, forwarding to `authelia` port `9091`, with the certificate and **Force SSL**.
+4. On Folio's proxy host (from HTTPS at Home), add Authelia's forward-auth configuration in the **Advanced** tab. Use the current snippet from Authelia's guide, **Integration › Proxies › NGINX Proxy Manager**: it has NPM ask `http://authelia:9091/api/authz/auth-request` about each request, send people who aren't signed in to the login page, and pass `Remote-User` and `Remote-Email` on to Folio. Keep the `client_max_body_size` and timeout lines from HTTPS at Home.
+
+Opening `https://folio.yourdomain.com` now shows Authelia's login first, then Folio's own sign-in.
+
+### 3. Make Folio check the login itself
+
+Folio doesn't sign you in from Authelia's headers. They are only a second gate, so Folio refuses visitors from outside your home network unless the proxy says who they are. In Folio's `.env`:
+
+```
+FOLIO_URL="https://folio.yourdomain.com"
+FOLIO_TRUST_PROXY="true"
+FOLIO_TRUSTED_PROXY_IPS="172.18.0.2"
+FOLIO_REQUIRE_PROXY_AUTH="true"
+```
+
+- `FOLIO_TRUSTED_PROXY_IPS` is NPM's address **as Folio sees it**, on the Docker network. Folio only believes `Remote-User` and `Remote-Email` from these addresses, and removes them from every other request before anything in Folio can see them.
+- Docker can give NPM a different address after a restart, so fix it: in NPM's container, add `--ip 172.18.0.2` to **Extra Parameters** (any free address on `folio-proxy`; `docker network inspect folio-proxy` shows the range).
+- `FOLIO_TRUST_PROXY` must be on. Without it, every request through NPM looks like it comes from NPM's own home-network address, so the check would let everyone in.
+- `FOLIO_REQUIRE_PROXY_AUTH` turns the check on. Requests from your home network or VPN still get in without the login.
+
+Restart Folio. Check it: from outside your home (for example on your phone with Wi-Fi off), `https://folio.yourdomain.com` shows the Authelia login first. Folio's own sign-in still follows.

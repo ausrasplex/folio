@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
-import { clientIpFrom } from './clientip';
+import { cleanIp, clientIpFrom, trustedProxies } from './clientip';
 import { localOrVpn } from './netrange';
+import { SOCKET_HEADER } from './socketip';
 
 /**
  * Optional "front door" checks that run before Folio answers anything (src/middleware.ts), for when Folio is
@@ -74,5 +75,23 @@ export async function frontDoor(h: HeaderSource, env: Env = process.env, keys?: 
       return { ok: false, why: 'Cloudflare Access could not be checked just now. Try again in a minute.' };
     }
   }
+  // Authelia (or any forward-auth login) behind a reverse proxy: from outside the home network, only requests the
+  // proxy has signed in (Remote-User or Remote-Email, believed only from FOLIO_TRUSTED_PROXY_IPS) get through
+  if (env.FOLIO_REQUIRE_PROXY_AUTH === 'true' && !proxySignedIn(h, env) && !localOrVpn(clientIpFrom(h, env))) {
+    return { ok: false, why: 'Sign in through your login page first, then open Folio again.' };
+  }
   return { ok: true };
+}
+
+export const PROXY_USER_HEADERS = ['remote-user', 'remote-email'];
+
+/** Whether the request came straight from one of our trusted proxies (FOLIO_TRUSTED_PROXY_IPS). */
+export function fromTrustedProxy(h: HeaderSource, env: Env = process.env) {
+  const socket = cleanIp(h.get(SOCKET_HEADER));
+  return !!socket && trustedProxies(env).has(socket);
+}
+
+/** A trusted proxy says who signed in. The same headers from anywhere else count for nothing. */
+export function proxySignedIn(h: HeaderSource, env: Env = process.env) {
+  return fromTrustedProxy(h, env) && PROXY_USER_HEADERS.some((n) => !!h.get(n));
 }

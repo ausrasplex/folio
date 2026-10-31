@@ -58,6 +58,24 @@ describe('the front door', () => {
     expect((await frontDoor(lan, { ...env, FOLIO_CF_ACCESS_LAN_BYPASS: 'true' }, keys)).ok).toBe(true);
     expect((await frontDoor(h({ [SOCKET_HEADER]: '203.0.113.9' }), { ...env, FOLIO_CF_ACCESS_LAN_BYPASS: 'true' }, keys)).ok).toBe(false);
   });
+  describe('with a login proxy such as Authelia', () => {
+    // NPM at 172.18.0.2 in front of Folio, with the visitor's address in x-forwarded-for
+    const env2 = { FOLIO_REQUIRE_PROXY_AUTH: 'true', FOLIO_TRUST_PROXY: 'true', FOLIO_TRUSTED_PROXY_IPS: '172.18.0.2' };
+    const via = (o: Record<string, string>) => h({ [SOCKET_HEADER]: '172.18.0.2', 'x-forwarded-for': '203.0.113.9', ...o });
+    it('lets in visitors from outside only when the proxy says who signed in', async () => {
+      expect((await frontDoor(via({ 'remote-user': 'alex' }), env2)).ok).toBe(true);
+      expect((await frontDoor(via({ 'remote-email': 'alex@example.com' }), env2)).ok).toBe(true);
+      expect((await frontDoor(via({}), env2)).ok).toBe(false);
+    });
+    it('ignores the headers when they do not come from the trusted proxy', async () => {
+      const direct = h({ [SOCKET_HEADER]: '203.0.113.9', 'remote-user': 'alex' });
+      expect((await frontDoor(direct, env2)).ok).toBe(false);
+    });
+    it('lets the home network in without a login', async () => {
+      expect((await frontDoor(h({ [SOCKET_HEADER]: '172.18.0.2', 'x-forwarded-for': '192.168.7.42' }), env2)).ok).toBe(true);
+      expect((await frontDoor(h({ [SOCKET_HEADER]: '192.168.7.42' }), env2)).ok).toBe(true);
+    });
+  });
   it('refuses when the keys cannot be fetched (fails closed)', async () => {
     const r = await frontDoor(h({ 'cf-access-jwt-assertion': token() }), env, async () => { throw new Error('offline'); });
     expect(r.ok).toBe(false);

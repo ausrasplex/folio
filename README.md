@@ -42,6 +42,7 @@ Optional settings (all described in `.env.example`):
 - `FOLIO_SECURE_COOKIE`: the sign-in cookie is HTTPS-only whenever Folio is reached over HTTPS (`FOLIO_URL` is https, or a trusted proxy says so). Set it to `false` if you also open Folio over plain HTTP at home with an https `FOLIO_URL`, since a HTTPS-only cookie is never sent over HTTP.
 - `FOLIO_TRUST_PROXY`: set to `true` only when every request reaches Folio through your own reverse proxy or Cloudflare. Folio then takes the visitor's address from `cf-connecting-ip` or `x-forwarded-for`. Left off, it uses the connection's own address and ignores those headers, since anyone can send them. Sign-in limits use this address.
 - `FOLIO_TRUSTED_PROXY_IPS`: the addresses of any further proxies in front of that one, comma-separated. Only needed when there are two in a row.
+- `FOLIO_REQUIRE_PROXY_AUTH`: when a login proxy such as Authelia sits in front of Folio, refuse visitors from outside the home network unless a proxy in `FOLIO_TRUSTED_PROXY_IPS` says who signed in. See [docs/security/REMOTE-ACCESS.md](docs/security/REMOTE-ACCESS.md).
 - `FOLIO_CF_ACCESS_TEAM`, `FOLIO_CF_ACCESS_AUD`, `FOLIO_CF_ACCESS_LAN_BYPASS`: when Folio sits behind Cloudflare Tunnel and Access, make Folio itself refuse any request without a valid Access sign-in. See [docs/security/REMOTE-ACCESS.md](docs/security/REMOTE-ACCESS.md).
 
 ## 3. Install and start
