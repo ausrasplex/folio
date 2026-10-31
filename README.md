@@ -34,6 +34,13 @@ Make the secret with `node -e "console.log(require('crypto').randomBytes(32).toS
 
 **Keep `FOLIO_SECRET` safe and never change it.** It encrypts account numbers, BSBs and two-step secrets. A backup restored on another install only reads those back if that install has the same secret.
 
+Optional settings (all described in `.env.example`):
+
+- `FOLIO_URL`: the address people use to reach Folio, for links in alerts and invites.
+- `FOLIO_BACKUP_DIR`, `FOLIO_UPDATE_URL`, `FOLIO_NO_JOBS`, `FOLIO_SECURE_COOKIE`: backups, update checks, background jobs and the cookie.
+- `FOLIO_TRUST_PROXY`: set to `true` only when every request reaches Folio through your own reverse proxy or Cloudflare. Folio then takes the visitor's address from `cf-connecting-ip` or `x-forwarded-for`. Left off, it uses the connection's own address and ignores those headers, since anyone can send them. Sign-in limits use this address.
+- `FOLIO_TRUSTED_PROXY_IPS`: the addresses of any further proxies in front of that one, comma-separated. Only needed when there are two in a row.
+
 ## 3. Install and start
 
 ```

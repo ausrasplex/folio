@@ -2,6 +2,7 @@ import { cookies, headers } from 'next/headers';
 import bcrypt from 'bcryptjs';
 import { db } from './db';
 import { sha256, token } from './crypto';
+import { clientIpFrom } from './clientip';
 
 export const COOKIE = 'folio_session';
 const DAYS = 30;
@@ -18,10 +19,9 @@ export async function passwordMatches(user: { passwordHash: string } | null, pw:
   return checkPassword(pw, user.passwordHash);
 }
 
-/** The address the request came from. */
+/** The address the request came from, worked out only from sources that can be trusted (see clientip.ts). */
 export async function requestIp() {
-  const h = await headers();
-  return (h.get('x-forwarded-for') || '').split(',')[0].trim() || null;
+  return clientIpFrom(await headers());
 }
 
 export async function startSession(userId: string, pending2fa = false) {
