@@ -250,7 +250,7 @@ export async function matchFile(buf: Buffer, name: string, mime: string, force?:
     }
   }
   if (isCsv) {
-    const rows = parseCsv(buf.toString('utf8').replace(/^﻿/, ''));
+    const rows = parseCsv(buf.toString('utf8').replace(/^\uFEFF/, ''));
     const hk = rows[0] ? headerKey(rows[0]) : '';
     for (const l of layouts.filter((x) => x.format === 'CSV')) for (const v of l.versions) {
       const m = v.map as unknown as CsvMap;

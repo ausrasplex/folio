@@ -10,7 +10,7 @@ async function sampleRead(c: Ctx, fileId: string, kind: string, format: string, 
   need(f, 'That sample file is not available.');
   const buf = Buffer.from(f!.data);
   if (format === 'CSV') {
-    const rows = parseCsv(buf.toString('utf8').replace(/^﻿/, ''));
+    const rows = parseCsv(buf.toString('utf8').replace(/^\uFEFF/, ''));
     return { read: readCsv(rows, { ...(map as unknown as CsvMap), header: rows[0] || [] }, kind), header: rows[0] || [] };
   }
   const pages = await pdfPages(buf).catch(() => { throw new Fail(UNREADABLE); });
