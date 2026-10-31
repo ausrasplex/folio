@@ -7,6 +7,7 @@ import { currentMembership, type CurrentUser } from './auth';
 import { APP_VERSION, backupSettings, dirSize, folderPath, freeSpace } from './backup';
 import { securityRows } from './security';
 import { startRateOffers } from './rates';
+import { offsetFromStatements, type BenefitStatement } from './offsetest';
 import { DAY, FREQ_WORD, num, summarize, today0, yearFrac, type SplitRow } from './loanmath';
 
 const SLOTS = ['a1', 'a2', 'a3'];
@@ -20,7 +21,7 @@ const ROLE: Record<string, string> = { OWNER: 'Owner', EDITOR: 'Editor', VIEWER:
 export const splitInclude = {
   rateChanges: true,
   repaymentChanges: true,
-  statements: { where: { deletedAt: null }, select: { id: true, periodStart: true, periodEnd: true, closing: true, opening: true, interest: true, credits: true, rate: true, paymentsInAdvance: true, deletedAt: true } }
+  statements: { where: { deletedAt: null }, select: { id: true, periodStart: true, periodEnd: true, closing: true, opening: true, interest: true, credits: true, rate: true, paymentsInAdvance: true, offsetBenefit: true, deletedAt: true } }
 } as const;
 
 export function categorize(desc: string, credit: number) {
@@ -120,7 +121,14 @@ export async function buildState(u: CurrentUser) {
   });
 
   // ----- loans
-  const offsetFor = (loanId: string) => accounts.filter((a) => a.link === loanId && !a.closedIso).reduce((t, a) => t + a.balance, 0);
+  const linkedOffset = (loanId: string) => accounts.filter((a) => a.link === loanId && !a.closedIso);
+  // a loan with no linked offset account: the offset balance its statements' offset benefit implies, period by period
+  const benefitRows: (BenefitStatement & { loanId: string })[] = loanRows.flatMap((l) => (linkedOffset(l.id).length ? [] : l.splits.flatMap((s) => s.statements
+    .filter((st) => !st.deletedAt && st.offsetBenefit != null && num(st.offsetBenefit) > 0)
+    .map((st) => ({ loanId: l.id, id: st.id, periodStart: st.periodStart, periodEnd: st.periodEnd, offsetBenefit: num(st.offsetBenefit), rate: st.rate == null ? null : num(st.rate) })))));
+  const rateLines = benefitRows.length ? (await db.txn.findMany({ where: { statementId: { in: benefitRows.map((b) => b.id) }, rate: { not: null } }, select: { statementId: true, date: true, rate: true } })).map((r) => ({ statementId: r.statementId, date: r.date, rate: num(r.rate) })) : [];
+  const offsetEst = new Map(loanRows.map((l) => [l.id, offsetFromStatements(benefitRows.filter((b) => b.loanId === l.id), rateLines, l.lender.dayCount)]));
+  const offsetFor = (loanId: string) => { const linked = linkedOffset(loanId); if (linked.length) return linked.reduce((t, a) => t + a.balance, 0); const est = offsetEst.get(loanId) || []; return est.length ? est[est.length - 1].amount : 0; };
   // splits whose starting rate is still the one typed in, where the first statement shows a different one
   const startOffers = await startRateOffers(loanRows.flatMap((l) => l.splits.map((s) => s.id)));
   const loans = loanRows.map((l, i) => {
@@ -145,7 +153,7 @@ export async function buildState(u: CurrentUser) {
       bal: Math.round(sm.bal), balExact: sm.bal, orig: Math.round(sm.orig), rNum: Math.round(sm.rate * 100) / 100, rate: rateText, repay: repayText, perMonth: sm.perMonth,
       next: sm.next ? sm.next.toISOString() : '', payoff: monY(sm.payoff), payoffIso: iso(sm.payoff), pEnd: sm.payoff ? yearFrac(sm.payoff) : yearFrac(now) + 40,
       start: yearFrac(l.startDate), startIso: iso(l.startDate), term: l.termYears, ahead: Math.round(sm.ahead), status, tone, series: sm.series, asAt: iso(sm.asAt),
-      offset: offsetFor(l.id), offsetAccounts: accounts.filter((a) => a.link === l.id).map((a) => a.id), totalInterest: Math.round(sm.totalInterest),
+      offset: offsetFor(l.id), offsetEst: !linkedOffset(l.id).length && (offsetEst.get(l.id) || []).length > 0, offsetHist: linkedOffset(l.id).length ? [] : offsetEst.get(l.id) || [], offsetAccounts: accounts.filter((a) => a.link === l.id).map((a) => a.id), totalInterest: Math.round(sm.totalInterest),
       postingDay: sm.postingDay, postingDaySet: l.postingDay != null, offsetOrder: l.offsetOrder, redraw: l.redraw, accountNumber: dec(l.accountNumber), customerId: dec(l.customerId),
       archived, closedReason: l.closedReason || '', closedAt: iso(l.closedAt), dates: monY(l.startDate) + ' – ' + (l.closedAt ? monY(l.closedAt) : ''),
       lenderSnapshot: l.lenderSnapshot, brokerSnapshot: l.brokerSnapshot,
