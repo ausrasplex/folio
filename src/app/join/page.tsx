@@ -1,7 +1,8 @@
 import { redirect } from 'next/navigation';
 import AuthCard from '@/components/AuthCard';
 import { db } from '@/lib/server/db';
-import { checkPassword, currentUser, hashPassword, startSession } from '@/lib/server/auth';
+import { currentUser, hashPassword, passwordMatches, requestIp, startSession } from '@/lib/server/auth';
+import { noMatchText, passwordLimit, passwordResult } from '@/lib/server/ratelimit';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,7 +23,13 @@ async function join(fd: FormData) {
   const name = String(fd.get('name') || '').trim();
   let u = await db.user.findUnique({ where: { email } });
   if (u) {
-    if (!(await checkPassword(pw, u.passwordHash))) redirect('/join?t=' + encodeURIComponent(t) + '&e=pw');
+    // an existing account: the same limit and message as signing in
+    const ip = await requestIp();
+    const lim = await passwordLimit(email, ip);
+    if (!lim.ok) redirect('/join?t=' + encodeURIComponent(t) + '&e=pw&w=' + Math.ceil(lim.waitMs / 60000));
+    const ok = await passwordMatches(u, pw);
+    await passwordResult(email, ip, ok);
+    if (!ok) redirect('/join?t=' + encodeURIComponent(t) + '&e=pw');
   } else {
     if (signup && signup.value === 'closed') redirect('/join?t=' + encodeURIComponent(t) + '&e=closed');
     if (!name || pw.length < 8) redirect('/join?t=' + encodeURIComponent(t) + '&e=1');
@@ -35,12 +42,13 @@ async function join(fd: FormData) {
   redirect(u.totpOn ? '/twostep' : '/');
 }
 
-export default async function Page({ searchParams }: { searchParams: Promise<{ t?: string; e?: string }> }) {
+export default async function Page({ searchParams }: { searchParams: Promise<{ t?: string; e?: string; w?: string }> }) {
   const sp = await searchParams;
   const inv = sp.t ? await validInvite(sp.t) : null;
   if (!inv) return <AuthCard title="This invite has expired" sub="Invite links work once and expire after 7 days. Ask for a new one." ><a className="abtn" href="/signin" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}>Go to sign in</a></AuthCard>;
   const me = await currentUser();
-  const err = sp.e === 'pw' ? 'That account exists, but the password does not match.' : sp.e === 'closed' ? 'This server is not taking new accounts right now.' : sp.e ? 'Fill in every field. The password needs at least 8 characters.' : undefined;
+  // never says whether the email already has an account
+  const err = sp.e === 'pw' ? noMatchText(sp.w) :sp.e === 'closed' ? 'This server is not taking new accounts right now.' : sp.e ? 'Fill in every field. The password needs at least 8 characters.' : undefined;
   return (
     <AuthCard title={'Join ' + inv.household.name} sub={'You have been invited as ' + (inv.role === 'OWNER' ? 'an owner' : inv.role === 'EDITOR' ? 'an editor' : 'a viewer') + '. Already have an account on this server? Use its email and password.'} error={err}>
       <form action={join} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>

@@ -9,10 +9,25 @@ const DAYS = 30;
 export async function hashPassword(p: string) { return bcrypt.hash(p, 11); }
 export async function checkPassword(p: string, h: string) { return bcrypt.compare(p, h); }
 
+// A real hash of a random string, made once: checking against it when an email has no account takes as long as a real
+// check, so the time a sign-in takes never shows whether the email exists.
+let noAccount: Promise<string> | null = null;
+/** Checks a password for an email, taking the same time whether or not the account exists. */
+export async function passwordMatches(user: { passwordHash: string } | null, pw: string) {
+  if (!user) { noAccount = noAccount || hashPassword(token(16)); await checkPassword(pw, await noAccount); return false; }
+  return checkPassword(pw, user.passwordHash);
+}
+
+/** The address the request came from. */
+export async function requestIp() {
+  const h = await headers();
+  return (h.get('x-forwarded-for') || '').split(',')[0].trim() || null;
+}
+
 export async function startSession(userId: string, pending2fa = false) {
   const t = token(32);
   const h = await headers();
-  await db.session.create({ data: { id: sha256(t), userId, pending2fa, userAgent: (h.get('user-agent') || '').slice(0, 300), ip: (h.get('x-forwarded-for') || '').split(',')[0] || null } });
+  await db.session.create({ data: { id: sha256(t), userId, pending2fa, userAgent: (h.get('user-agent') || '').slice(0, 300), ip: await requestIp() } });
   (await cookies()).set(COOKIE, t, { httpOnly: true, sameSite: 'lax', path: '/', maxAge: DAYS * 86400, secure: process.env.FOLIO_SECURE_COOKIE === 'true' });
   return t;
 }

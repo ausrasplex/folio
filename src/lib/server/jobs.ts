@@ -1,6 +1,7 @@
 import { db } from './db';
 import { backupSettings, makeBackup } from './backup';
 import { notifyUser } from './notify';
+import { pruneAttempts } from './ratelimit';
 import { buildState } from './state';
 
 const g = globalThis as unknown as { folioJobs?: boolean };
@@ -39,6 +40,7 @@ export function startJobs() {
   const tick = async () => {
     try { await backupIfDue(); } catch (e) { console.error('[folio] backup failed', e); }
     try { await sendAlerts(); } catch (e) { console.error('[folio] alerts failed', e); }
+    try { await pruneAttempts(); } catch (e) { console.error('[folio] pruning sign-in attempts failed', e); }
   };
   setTimeout(tick, 60000);
   setInterval(tick, 15 * 60000);

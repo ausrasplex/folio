@@ -62,6 +62,18 @@ model Session {
   lastSeen   DateTime @default(now())
 }
 
+/// Password and two-step code attempts, for limiting guesses (pruned after a day).
+/// key: email:<address>, ip:<client address> or totp:<user id>
+model LoginAttempt {
+  id  String   @id @default(cuid())
+  key String
+  ok  Boolean
+  at  DateTime @default(now())
+  ip  String?
+
+  @@index([key, at])
+}
+
 model Household {
   id          String       @id @default(cuid())
   name        String

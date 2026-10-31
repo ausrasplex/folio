@@ -1,10 +1,21 @@
 import { type Action, db, need, str } from '../actions';
-import { checkPassword, hashPassword } from '../auth';
+import { checkPassword, hashPassword, requestIp } from '../auth';
+import { passwordLimit, passwordResult, waitText } from '../ratelimit';
 import { dec, enc, sha256 } from '../crypto';
 import { checkCode, makeRecoveryCodes, newSecret, otpUri, useRecoveryCode } from '../twofactor';
 
 const img = (v: unknown) => { const s = String(v ?? ''); if (!s) return null; need(/^data:image\/(png|jpeg|webp|gif);base64,/.test(s) && s.length < 600000, 'That image is too large or not a picture.'); return s; };
 const freshCodes = async (userId: string) => { const codes = makeRecoveryCodes(); await db.user.update({ where: { id: userId }, data: { recoveryCodes: codes.map((c) => sha256(c.toUpperCase())) } }); return codes; };
+
+/** Checks your own password, under the same limit as signing in (a stolen session cannot guess it freely). */
+const ownPassword = async (u: { email: string; passwordHash: string }, pw: unknown, wrong: string) => {
+  const ip = await requestIp();
+  const lim = await passwordLimit(u.email, ip);
+  need(lim.ok, 'Too many wrong passwords. ' + (lim.ok ? '' : waitText(lim.waitMs)));
+  const ok = await checkPassword(String(pw || ''), u.passwordHash);
+  await passwordResult(u.email, ip, ok);
+  need(ok, wrong);
+};
 
 const mergePrefs = async (userId: string, patch: Record<string, unknown>) => {
   const u = await db.user.findUnique({ where: { id: userId } });
@@ -39,12 +50,12 @@ export const userActions: Record<string, Action> = {
   changeEmail: async ({ u, p }) => {
     const email = str(p.email, 120).toLowerCase();
     need(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email), 'Enter a valid email address.');
-    need(await checkPassword(String(p.password || ''), u.passwordHash), 'That password is not right.');
+    await ownPassword(u, p.password, 'That password is not right.');
     need(!(await db.user.count({ where: { email, id: { not: u.id } } })), 'Another account on this server uses that email.');
     await db.user.update({ where: { id: u.id }, data: { email, pendingEmail: null, emailToken: null } });
   },
   changePassword: async ({ u, p }) => {
-    need(await checkPassword(String(p.cur || ''), u.passwordHash), 'Your current password is not right.');
+    await ownPassword(u, p.cur, 'Your current password is not right.');
     const nw = String(p.nw || '');
     need(nw.length >= 12, 'The new password needs at least 12 characters.');
     need(nw !== p.cur, 'Choose a password you have not used here.');
