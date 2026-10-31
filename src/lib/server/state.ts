@@ -7,6 +7,7 @@ import { currentMembership, type CurrentUser } from './auth';
 import { APP_VERSION, backupSettings, dirSize, folderPath, freeSpace } from './backup';
 import { securityRows } from './security';
 import { startRateOffers } from './rates';
+import { chargeDay, type Txn } from './importer';
 import { offsetFromStatements, type BenefitStatement } from './offsetest';
 import { DAY, FREQ_WORD, num, summarize, today0, yearFrac, type SplitRow } from './loanmath';
 
@@ -131,9 +132,12 @@ export async function buildState(u: CurrentUser) {
   const offsetFor = (loanId: string) => { const linked = linkedOffset(loanId); if (linked.length) return linked.reduce((t, a) => t + a.balance, 0); const est = offsetEst.get(loanId) || []; return est.length ? est[est.length - 1].amount : 0; };
   // splits whose starting rate is still the one typed in, where the first statement shows a different one
   const startOffers = await startRateOffers(loanRows.flatMap((l) => l.splits.map((s) => s.id)));
+  // the day each loan's interest is charged, from its statements' interest lines (for loans with no posting day set)
+  const chargeLines = await db.txn.findMany({ where: { debit: { gt: 0 }, description: { contains: 'interest', mode: 'insensitive' }, statement: { deletedAt: null, split: { loanId: { in: loanRows.filter((l) => !l.postingDay).map((l) => l.id) } } } }, select: { date: true, description: true, debit: true, statement: { select: { split: { select: { loanId: true } } } } } });
+  const chargeDayOf = (loanId: string) => chargeDay({ txns: chargeLines.filter((t) => t.statement.split?.loanId === loanId).map((t) => ({ date: t.date.toISOString().slice(0, 10), description: t.description, debit: num(t.debit) })) as unknown as Txn[] });
   const loans = loanRows.map((l, i) => {
     const splits = l.splits as unknown as SplitRow[];
-    const sm = summarize({ startDate: l.startDate, termYears: l.termYears, postingDay: l.postingDay, offsetOrder: l.offsetOrder, dayCount: l.lender.dayCount, splits, offsetBalance: Math.round(offsetFor(l.id)) }); // whole dollars, as the loan page projects it
+    const sm = summarize({ startDate: l.startDate, termYears: l.termYears, postingDay: l.postingDay, chargeDay: l.postingDay ? null : chargeDayOf(l.id), offsetOrder: l.offsetOrder, dayCount: l.lender.dayCount, splits, offsetBalance: Math.round(offsetFor(l.id)) }); // whole dollars, as the loan page projects it
     const people = l.borrowers.map((b) => ({ id: b.userId, i: initials(b.user.displayName), name: b.user.displayName, slot: slotOf[b.userId] || 'a1' }));
     const fixed = sm.splits.filter((x) => x.s.kind === 'FIXED' && x.s.fixedUntil && x.s.fixedUntil > now).sort((a, b) => +a.s.fixedUntil! - +b.s.fixedUntil!)[0];
     const fx = fixed ? fixed.s.fixedUntil : null;

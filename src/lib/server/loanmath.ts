@@ -80,6 +80,8 @@ export interface LoanSummaryInput {
   startDate: Date;
   termYears: number;
   postingDay: number | null;
+  /** The day the statements' interest lines fall on, used when no posting day is set. */
+  chargeDay?: number | null;
   offsetOrder: string;
   dayCount: number;
   splits: SplitRow[];
@@ -98,7 +100,7 @@ export function summarize(l: LoanSummaryInput) {
   const bal = splits.reduce((t, x) => t + x.bal, 0);
   const orig = l.splits.reduce((t, s) => t + num(s.openingBalance), 0);
   const asAt = splits.reduce((d, x) => (x.balDate > d ? x.balDate : d), new Date(0));
-  const postingDay = l.postingDay || (() => { const st = l.splits.flatMap((s) => s.statements).find((x) => !x.deletedAt); return st ? st.periodEnd.getUTCDate() : l.startDate.getUTCDate(); })();
+  const postingDay = l.postingDay || l.chargeDay || (() => { const st = l.splits.flatMap((s) => s.statements).find((x) => !x.deletedAt); return st ? st.periodEnd.getUTCDate() : l.startDate.getUTCDate(); })();
   const fsplits: ForecastSplit[] = splits.filter((x) => x.bal > 0).map((x) => ({
     id: x.s.id, name: x.s.name, kind: x.s.kind, fixedUntil: x.s.fixedUntil, balance: x.bal,
     rates: [{ from: new Date(0), rate: x.rate }], repayment: x.repay, frequency: x.freq, weekday: x.freq === 'MONTHLY' ? undefined : x.s.repayDay
