@@ -43,7 +43,16 @@ export function noMatchText(minutes?: string | number) {
   return "That email and password don't match." + (m > 0 ? ' Try again in ' + Math.min(m, 15) + (m === 1 ? ' minute.' : ' minutes.') : '');
 }
 
-export const emailKey =(email: string) => 'email:' + String(email || '').trim().toLowerCase();
+/** Two-step codes: wrong codes allowed in one pending sign-in before it is ended. */
+export const CODES_PER_SESSION = 5;
+export const totpKey = (userId: string) => 'totp:' + userId;
+
+/** Wrong codes for a key since a time (a pending session's start). */
+export async function failuresSince(key: string, since: Date) {
+  return db.loginAttempt.count({ where: { key, ok: false, at: { gte: since } } });
+}
+
+export const emailKey = (email: string) => 'email:' + String(email || '').trim().toLowerCase();
 export const ipKey = (ip: string) => 'ip:' + ip;
 
 /** Failure times for a key in the last 15 minutes. */

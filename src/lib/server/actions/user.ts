@@ -1,8 +1,8 @@
 import { type Action, db, need, str } from '../actions';
 import { checkPassword, hashPassword, requestIp } from '../auth';
-import { passwordLimit, passwordResult, waitText } from '../ratelimit';
-import { dec, enc, sha256 } from '../crypto';
-import { checkCode, makeRecoveryCodes, newSecret, otpUri, useRecoveryCode } from '../twofactor';
+import { clearFailures, emailLimit, failures, passwordLimit, passwordResult, recordAttempt, totpKey, waitText } from '../ratelimit';
+import { enc, sha256 } from '../crypto';
+import { makeRecoveryCodes, newSecret, otpUri, useRecoveryCode, useTotp } from '../twofactor';
 
 const img = (v: unknown) => { const s = String(v ?? ''); if (!s) return null; need(/^data:image\/(png|jpeg|webp|gif);base64,/.test(s) && s.length < 600000, 'That image is too large or not a picture.'); return s; };
 const freshCodes = async (userId: string) => { const codes = makeRecoveryCodes(); await db.user.update({ where: { id: userId }, data: { recoveryCodes: codes.map((c) => sha256(c.toUpperCase())) } }); return codes; };
@@ -14,6 +14,18 @@ const ownPassword = async (u: { email: string; passwordHash: string }, pw: unkno
   need(lim.ok, 'Too many wrong passwords. ' + (lim.ok ? '' : waitText(lim.waitMs)));
   const ok = await checkPassword(String(pw || ''), u.passwordHash);
   await passwordResult(u.email, ip, ok);
+  need(ok, wrong);
+};
+
+/** Checks one of your own two-step codes (or, with recovery, a recovery code). Wrong codes count like wrong passwords:
+ *  five, then a wait of 1 minute doubling to 15. A good code cannot be used again in its 30 seconds. */
+const ownCode = async (u: { id: string }, code: string, wrong: string, opts: { setup?: boolean; recovery?: boolean } = {}) => {
+  const key = totpKey(u.id);
+  const now = Date.now();
+  const lim = emailLimit(await failures(key, now), now);
+  need(lim.ok, 'Too many wrong codes. ' + (lim.ok ? '' : waitText(lim.waitMs)));
+  const ok = (await useTotp(u.id, code, { setup: opts.setup })) || (!!opts.recovery && (await useRecoveryCode(u.id, code)));
+  if (ok) await clearFailures(key); else await recordAttempt(key, false, await requestIp());
   need(ok, wrong);
 };
 
@@ -72,20 +84,20 @@ export const userActions: Record<string, Action> = {
   tfaVerify: async ({ u, p }) => {
     const fresh = await db.user.findUnique({ where: { id: u.id } });
     need(fresh?.totpSecret, 'Start the set-up again.');
-    need(await checkCode(dec(fresh!.totpSecret), str(p.code).replace(/\s/g, '')), 'That code did not match. Check the time on your phone and try the newest code.');
+    await ownCode(u, str(p.code).replace(/\s/g, ''), 'That code did not match. Check the time on your phone and try the newest code.', { setup: true });
     await db.user.update({ where: { id: u.id }, data: { totpOn: true } });
     await mergePrefs(u.id, { tfaOn: new Date().toISOString() });
     return { codes: await freshCodes(u.id) };
   },
   tfaCodes: async ({ u, p }) => {
     need(u.totpOn && u.totpSecret, 'Two-step verification is off.');
-    need(await checkCode(dec(u.totpSecret), str(p.code).replace(/\s/g, '')), 'That code did not match.');
+    await ownCode(u, str(p.code).replace(/\s/g, ''), 'That code did not match. Enter the newest code from your app.');
     return { codes: await freshCodes(u.id) };
   },
   tfaOff: async ({ u, p }) => {
     need(u.totpOn && u.totpSecret, 'Two-step verification is already off.');
     const code = str(p.code).replace(/\s/g, '');
-    need((await checkCode(dec(u.totpSecret), code)) || (await useRecoveryCode(u.id, code)), 'That code did not match.');
+    await ownCode(u, code, 'That code did not match. Enter the newest code from your app, or a recovery code.', { recovery: true });
     await db.user.update({ where: { id: u.id }, data: { totpOn: false, totpSecret: null, recoveryCodes: [] } });
   },
   signOutSession: async ({ u, p }) => {

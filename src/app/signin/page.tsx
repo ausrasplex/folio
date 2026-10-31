@@ -27,7 +27,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ e
   if (await currentUser()) redirect('/');
   const sp = await searchParams;
   return (
-    <AuthCard title="Sign in to Folio" sub="Your loans and statements stay on this server." error={sp.e ? noMatchText(sp.w) : undefined}>
+    <AuthCard title="Sign in to Folio" sub="Your loans and statements stay on this server." error={sp.e === 'codes' ? 'Too many wrong codes. Sign in again, then enter the newest code from your authenticator app.' : sp.e ? noMatchText(sp.w) : undefined}>
       <form action={signIn} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <label className="afld"><span>Email</span><input name="email" type="email" autoComplete="username" required /></label>
         <label className="afld"><span>Password</span><input name="password" type="password" autoComplete="current-password" required /></label>

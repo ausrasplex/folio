@@ -21,6 +21,16 @@ const WHO = process.env.WHO || 'sam@folio.local';
   console.log('recovery codes shown:', codes.length);
   await p.goto(BASE + '/signout'); await signin();
   console.log('after sign in:', p.url());
+  // six wrong codes end the sign-in and land on /signin (the fifth already does)
+  for (let i = 1; i <= 6; i++) {
+    if (!p.url().includes('/twostep')) break;
+    await p.fill('input[name=code]', String(100000 + i));
+    await Promise.all([p.waitForNavigation(), p.click('button[type=submit]')]);
+  }
+  console.log('after six wrong codes:', p.url(), p.url().includes('/signin') ? 'OK' : 'FAILED');
+  await signin();
+  // a code works once: wait for the next 30-second window so this is not the code used to turn two-step on
+  await p.waitForTimeout((30 - (Math.floor(Date.now() / 1000) % 30)) * 1000 + 500);
   await p.fill('input[name=code]', await generate({ secret: key }));
   await Promise.all([p.waitForNavigation(), p.click('button[type=submit]')]);
   console.log('after code:', p.url());
