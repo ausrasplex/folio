@@ -38,7 +38,11 @@ export class DCBase extends React.Component {
         open: () => { if (n.fo) { try { window.localStorage.setItem('folioOpen', JSON.stringify(Object.assign({ t: Date.now() }, n.fo))); } catch (e) {} } this.act('alertsRead', { ids: [n.id] }, { reload: false }); } });
     });
     const unreadCount = notifs.filter((n) => read.indexOf(n.id) < 0).length;
+    // the bell's badge: the number of unread alerts, or just a dot (chosen in Profile)
+    const dot = ((me.prefs || {}).bellStyle) === 'dot';
     return {
+      badgeCls: dot ? 'badge dot' : 'badge', badgeText: dot ? '' : String(unreadCount),
+      bellLabel: unreadCount ? 'Notifications, ' + unreadCount + ' unread' : 'Notifications',
       meIni: me.initials || '?', mePhotoSt: me.photo ? ";background:var(--a1) url('" + me.photo + "') center/cover no-repeat;color:transparent" : '',
       hhLabel: (d.household && d.household.name) || 'Household',
       notifs, unreadCount, hasUnread: unreadCount > 0, allRead: unreadCount === 0, noNotifs: notifs.length === 0,
@@ -93,6 +97,8 @@ export function HouseholdSwitch({ style, chevron }) {
  * The app's date picker, used by every date field: a calendar with month and year choosers.
  * Its state lives on the screen as state.dp ({ key, ym: [year, month], view: days | months | years }), one open at a time.
  */
+const YEARS_BACK = 60;
+const YEARS_AHEAD = 40;
 export function datePicker(screen, key, value, set) {
   const st = screen.state || {};
   const pad = (n) => String(n).padStart(2, '0');
@@ -120,22 +126,22 @@ export function datePicker(screen, key, value, set) {
     return { t: d.toLocaleDateString('en-AU', { month: 'short' }), aria: d.toLocaleDateString('en-AU', { month: 'long' }) + ' ' + ym[0], sel: m === ym[1],
       st: cellSt(m === ym[1], m === now.getMonth() && ym[0] === now.getFullYear()), pick: () => go({ ym: [ym[0], m], view: 'days' }) };
   });
-  // twelve years a page, in blocks that stay put while you browse (2016 to 2027, 2028 to 2039)
-  const y0 = Math.floor(ym[0] / 12) * 12;
-  const years = Array.from({ length: 12 }, (_, i) => {
-    const y = y0 + i;
+  // every year from 60 back to 40 ahead (stretched to include the chosen one), in one scrolling grid
+  const yFrom = Math.min(now.getFullYear() - YEARS_BACK, ym[0]), yTo = Math.max(now.getFullYear() + YEARS_AHEAD, ym[0]);
+  const years = Array.from({ length: yTo - yFrom + 1 }, (_, i) => {
+    const y = yFrom + i;
     return { t: String(y), aria: String(y), sel: y === ym[0], st: cellSt(y === ym[0], y === now.getFullYear()), pick: () => go({ ym: [y, ym[1]], view: 'days' }) };
   });
-  const step = view === 'years' ? 12 : view === 'months' ? 1 : 0;
+  const step = view === 'months' ? 1 : 0;
   return {
     open, label: fmt(value) || 'Choose a date', month: first.toLocaleDateString('en-AU', { month: 'long', year: 'numeric' }), cells,
-    monthName: first.toLocaleDateString('en-AU', { month: 'long' }), year: String(ym[0]), yearsLabel: y0 + ' to ' + (y0 + 11),
+    monthName: first.toLocaleDateString('en-AU', { month: 'long' }), year: String(ym[0]),
     isDays: view === 'days', isMonths: view === 'months', isYears: view === 'years', months, years,
     showMonths: () => go({ view: view === 'months' ? 'days' : 'months' }),
     showYears: () => go({ view: view === 'years' ? 'days' : 'years' }),
     toggle: () => screen.setState({ dp: open ? null : { key, ym, view: 'days' } }),
-    prevLabel: view === 'years' ? 'Earlier years' : view === 'months' ? 'Previous year' : 'Previous month',
-    nextLabel: view === 'years' ? 'Later years' : view === 'months' ? 'Next year' : 'Next month',
+    prevLabel: view === 'months' ? 'Previous year' : 'Previous month',
+    nextLabel: view === 'months' ? 'Next year' : 'Next month',
     prev: () => go({ ym: step ? [ym[0] - step, ym[1]] : ym[1] === 0 ? [ym[0] - 1, 11] : [ym[0], ym[1] - 1] }),
     next: () => go({ ym: step ? [ym[0] + step, ym[1]] : ym[1] === 11 ? [ym[0] + 1, 0] : [ym[0], ym[1] + 1] }),
     today: () => { set(today); screen.setState({ dp: null }); }
@@ -147,21 +153,31 @@ const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 /** The pop-up for a date field, drawn from datePicker()'s values. Shows nothing while closed. */
 export function DatePop({ dp, label }) {
+  const yearsBox = React.useRef(null);
+  const showingYears = !!(dp && dp.open && dp.isYears);
+  // the year list opens scrolled to the chosen year
+  React.useEffect(() => {
+    if (!showingYears || !yearsBox.current) return;
+    const box = yearsBox.current, on = box.querySelector('[aria-pressed="true"]');
+    if (on) box.scrollTop = on.offsetTop - box.clientHeight / 2 + on.offsetHeight / 2;
+  }, [showingYears]);
   if (!dp || !dp.open) return null;
   const grid = (list) => (
     <div className="dpgrid3">
       {list.map((o, i) => <button key={i} type="button" className="dpcell" style={css(o.st)} aria-label={o.aria} aria-pressed={o.sel} onClick={o.pick}>{o.t}</button>)}
     </div>
   );
+  // arrows step months or years; the year list scrolls instead, so they are kept out of the way (but hold their place)
+  const arrow = { margin: 0, visibility: dp.isYears ? 'hidden' : 'visible' };
   return (
     <div className="dp" role="dialog" aria-label={label || 'Choose a date'}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-        <button type="button" className="iback" style={{ margin: 0 }} aria-label={dp.prevLabel} onClick={dp.prev}>{chevron('m15 18-6-6 6-6')}</button>
+        <button type="button" className="iback" style={arrow} aria-label={dp.prevLabel} onClick={dp.prev} tabIndex={dp.isYears ? -1 : 0}>{chevron('m15 18-6-6 6-6')}</button>
         <span style={{ display: 'flex', alignItems: 'center', gap: 2, minWidth: 0 }}>
           <button type="button" className={'dphead' + (dp.isMonths ? ' on' : '')} aria-expanded={dp.isMonths} aria-label={'Choose the month, now ' + dp.monthName} onClick={dp.showMonths}>{dp.monthName}{chevron('m6 9 6 6 6-6')}</button>
           <button type="button" className={'dphead' + (dp.isYears ? ' on' : '')} aria-expanded={dp.isYears} aria-label={'Choose the year, now ' + dp.year} onClick={dp.showYears}>{dp.year}{chevron('m6 9 6 6 6-6')}</button>
         </span>
-        <button type="button" className="iback" style={{ margin: 0 }} aria-label={dp.nextLabel} onClick={dp.next}>{chevron('m9 18 6-6-6-6')}</button>
+        <button type="button" className="iback" style={arrow} aria-label={dp.nextLabel} onClick={dp.next} tabIndex={dp.isYears ? -1 : 0}>{chevron('m9 18 6-6-6-6')}</button>
       </div>
       {dp.isDays ? (
         <>
@@ -170,7 +186,7 @@ export function DatePop({ dp, label }) {
         </>
       ) : null}
       {dp.isMonths ? grid(dp.months) : null}
-      {dp.isYears ? (<><span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', textAlign: 'center' }}>{dp.yearsLabel}</span>{grid(dp.years)}</>) : null}
+      {dp.isYears ? <div ref={yearsBox} className="dpyears">{grid(dp.years)}</div> : null}
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
         <button type="button" className="btn2" style={{ minHeight: 40, padding: '0 16px' }} onClick={dp.today}>Today</button>
         <button type="button" className="btn2" style={{ minHeight: 40, padding: '0 16px' }} onClick={dp.toggle}>Close</button>

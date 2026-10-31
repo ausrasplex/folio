@@ -47,6 +47,15 @@ describe('dashboard', () => {
     for (const t of ['Add a loan', 'Add an account', 'Import a statement']) expect(html, t).toContain(t);
     expect(html).not.toContain('Needs Attention');
   });
+  it('the bell shows the number of unread alerts, or just a dot when chosen in Profile', () => {
+    const count = render(full);
+    expect(count).toContain('aria-label="Notifications, 1 unread"');
+    expect(count).toMatch(/<span class="badge">1<\/span>/);
+    const dot = render({ ...full, me: { ...full.me, prefs: { bellStyle: 'dot' } } });
+    expect(dot).toMatch(/<span class="badge dot"><\/span>/);
+    expect(dot).toContain('aria-label="Notifications, 1 unread"'); // still said aloud
+    expect(render({ ...full, notifications: [] })).toContain('aria-label="Notifications"');
+  });
   it('the logo goes to the dashboard and the nav item is desktop only', () => {
     const html = render(full);
     expect(html).toMatch(/<li class="hide-m"><a class="navlink on" href="\/">/);

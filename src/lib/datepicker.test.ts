@@ -38,20 +38,27 @@ describe('date picker', () => {
     expect(back.isDays).toBe(true);
     expect([back.monthName, back.year]).toEqual(['March', '2027']);
   });
-  it('choosing a year keeps the month, and the arrows page twelve years', () => {
+  it('lists every year from 60 back to 40 ahead in one scrolling list, and keeps the month', () => {
     const s = screen();
     pick(s).toggle();
     pick(s).showYears();
     let dp = pick(s);
+    const y = new Date().getFullYear();
     expect(dp.isYears).toBe(true);
-    expect(dp.years.map((y) => y.t)).toEqual(['2016', '2017', '2018', '2019', '2020', '2021', '2022', '2023', '2024', '2025', '2026', '2027']);
-    expect(html(dp)).toContain('2016 to 2027');
-    dp.prev();
+    expect(dp.years[0].t).toBe(String(y - 60));
+    expect(dp.years[dp.years.length - 1].t).toBe(String(y + 40));
+    expect(dp.years).toHaveLength(101);
+    expect(html(dp)).toContain('class="dpyears"');
+    dp.years.find((x) => x.t === String(y - 55))!.pick();
     dp = pick(s);
-    expect(dp.years[0].t).toBe('2004');
-    dp.years.find((y) => y.t === '2009')!.pick();
-    dp = pick(s);
-    expect([dp.isDays, dp.monthName, dp.year]).toEqual([true, 'October', '2009']);
+    expect([dp.isDays, dp.monthName, dp.year]).toEqual([true, 'October', String(y - 55)]);
+  });
+  it('stretches the year list to include a date chosen further back', () => {
+    const s = screen();
+    s.saved = '1950-03-01';
+    pick(s).toggle();
+    pick(s).showYears();
+    expect(pick(s).years[0].t).toBe('1950');
   });
   it('marks the current year and still saves the day you pick', () => {
     const s = screen();

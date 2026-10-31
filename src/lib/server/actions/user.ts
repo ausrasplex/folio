@@ -50,6 +50,8 @@ export const userActions: Record<string, Action> = {
     const allowed = ['loansHeroCards', 'accountsHeroCards', 'loanHeroCards', 'alerts', 'missDays', 'revLead'];
     const patch: Record<string, unknown> = {};
     for (const k of allowed) if (k in p) patch[k] = p[k];
+    // the notification bell: a number of unread alerts, or just a dot
+    if ('bellStyle' in p) patch.bellStyle = p.bellStyle === 'dot' ? 'dot' : 'count';
     await mergePrefs(u.id, patch);
   },
   setName: async ({ u, p }) => {
