@@ -2,7 +2,7 @@ import { crossSiteBlock } from '@/lib/server/origin';
 import { currentMembership, currentUser, twoStepBlock } from '@/lib/server/auth';
 import { db } from '@/lib/server/db';
 import { matchFile, UNREADABLE } from '@/lib/server/importer';
-import { guessDest, saveImport } from '@/lib/server/imports';
+import { checkDest, guessDest, saveImport } from '@/lib/server/imports';
 import { fileProblem } from '@/lib/server/filecheck';
 import { IMPORT_MAX, readForm, tooLarge } from '@/lib/server/limits';
 import { attemptsSince, importKey, IMPORTS_PER_MINUTE, recordAttempt } from '@/lib/server/ratelimit';
@@ -42,7 +42,8 @@ export async function POST(req: Request) {
   if ('remap' in match && match.remap) {
     await db.layout.update({ where: { id: match.remap.id }, data: { status: 'remap', failedNote: new Date().toISOString().slice(0, 10) } }).catch(() => {});
   }
-  const guess = dest || (await guessDest(u.id, m.householdId, match.layout?.lenderName || null, match.layout?.kind || null, match.read));
+  // a preset destination still yields to the split the statement's account number and suffix name
+  const guess = dest ? await checkDest(u.id, m.householdId, dest, match.read) : (await guessDest(u.id, m.householdId, match.layout?.lenderName || null, match.layout?.kind || null, match.read));
   if (fd.get('autoSave') && guess && match.read && match.read.ok) {
     try { const s = await saveImport({ fileId: stored.id, destId: guess, userId: u.id, householdId: m.householdId }); return Response.json({ saved: true, ...s }); } catch { /* falls through to review */ }
   }

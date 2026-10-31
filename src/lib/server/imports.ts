@@ -1,6 +1,7 @@
 // Saving a read statement into a loan split or an account.
 import { Prisma } from '@prisma/client';
 import { db } from './db';
+import { dec } from './crypto';
 import { categorize } from './state';
 import { chargeDay, engineInterest, matchFile, type Read } from './importer';
 import { rateInEffect } from './rates';
@@ -13,16 +14,46 @@ export type Dest = { kind: 'split'; id: string; loanId: string; name: string; of
 export async function destinations(userId: string, householdId: string) {
   const loans = await db.loan.findMany({ where: { householdId, status: 'active', borrowers: { some: { userId } } }, include: { lender: true, splits: { where: { deletedAt: null }, orderBy: { sortOrder: 'asc' } }, offsetAccounts: { where: { deletedAt: null, closedAt: null } } } });
   const accts = await db.account.findMany({ where: { householdId, deletedAt: null, closedAt: null, holders: { some: { userId } } }, include: { lender: true } });
-  const out: (Dest & { lender: string; label: string; suffix?: string | null; numberTail?: string })[] = [];
-  for (const l of loans) for (const s of l.splits) out.push({ kind: 'split', id: s.id, loanId: l.id, name: l.name + (l.splits.length > 1 ? ' · ' + s.name : ''), offset: l.offsetAccounts.length > 0, postingDay: l.postingDay, dayCount: l.lender.dayCount, lender: l.lender.name, label: l.splits.length > 1 ? 'Loan split' : 'Loan', suffix: s.accountSuffix });
+  const out: (Dest & { lender: string; label: string; suffix?: string; number?: string })[] = [];
+  // a split without a saved suffix is 01, 02 … in order, as the screens show it
+  for (const l of loans) l.splits.forEach((s, k) => out.push({ kind: 'split', id: s.id, loanId: l.id, name: l.name + (l.splits.length > 1 ? ' · ' + s.name : ''), offset: l.offsetAccounts.length > 0, postingDay: l.postingDay, dayCount: l.lender.dayCount, lender: l.lender.name, label: l.splits.length > 1 ? 'Loan split' : 'Loan', suffix: s.accountSuffix || String(k + 1).padStart(2, '0'), number: digits(dec(l.accountNumber)) }));
   for (const a of accts) out.push({ kind: 'account', id: a.id, name: a.name, lender: a.lender.name, label: 'Account' });
   return out;
+}
+
+const digits = (s: string | null | undefined) => (s || '').replace(/\D/g, '');
+
+/** The loan splits the account number on a statement points to: the loan whose account number it contains, then the split whose suffix it ends with. */
+export function byAccount<D extends { kind: string; suffix?: string; number?: string }>(cands: D[], acct: string | null | undefined): { hits: D[]; byNumber: boolean } {
+  const a = digits(acct);
+  if (a.length < 2) return { hits: [], byNumber: false };
+  let c = cands.filter((d) => d.kind === 'split');
+  // the loan number may have been typed with a split suffix on the end (…01), so it also matches without its last two digits
+  const core = (n: string) => (n.length >= 8 ? n.slice(0, -2) : n);
+  const numbered = c.filter((d) => d.number && d.number.length >= 4 && (a.includes(d.number) || a.slice(0, -2).includes(core(d.number))));
+  // a loan whose number is on file and is not on the statement is not this loan
+  c = numbered.length ? numbered : c.filter((d) => !d.number || d.number.length < 4);
+  const tail = a.slice(-2);
+  const hit = c.filter((d) => d.suffix && digits(d.suffix).slice(-2).padStart(2, '0') === tail);
+  return { hits: hit.length ? hit : numbered, byNumber: numbered.length > 0 };
+}
+
+/** A destination chosen before the upload (from a loan or a split's row) gives way to the split the statement's account number names: another split of the same loan, or a split whose loan number matches. */
+export async function checkDest(userId: string, householdId: string, dest: string, read: Read | null) {
+  if (!read || !read.acct) return dest;
+  const all = await destinations(userId, householdId);
+  const cur = all.find((d) => d.id === dest);
+  if (!cur || cur.kind !== 'split') return dest;
+  const { hits, byNumber } = byAccount(all, read.acct);
+  if (hits.length !== 1 || hits[0].id === dest) return dest;
+  const h = hits[0];
+  return h.kind === 'split' && (byNumber || h.loanId === cur.loanId) ? h.id : dest;
 }
 
 export async function guessDest(userId: string, householdId: string, lenderName: string | null, kind: string | null, read: Read | null) {
   const all = await destinations(userId, householdId);
   let c = all.filter((d) => (!lenderName || d.lender.toLowerCase() === lenderName.toLowerCase()) && (!kind || (kind === 'loan' ? d.kind === 'split' : d.kind === 'account')));
-  if (read && read.acct) { const tail = read.acct.replace(/\D/g, '').slice(-2); const hit = c.filter((d) => 'suffix' in d && d.suffix && d.suffix.replace(/\D/g, '').slice(-2) === tail); if (hit.length === 1) c = hit; }
+  if (read && read.acct) { const { hits } = byAccount(c, read.acct); if (hits.length >= 1 && hits.length < c.length) c = hits; }
   if (c.length > 1 && read && read.period) {
     // a loan or account that already has this exact period wins (the duplicate is then reported); otherwise the one whose latest statement ends just before this one starts
     const st0 = +new Date(read.period.start + 'T00:00:00Z'), end0 = +new Date(read.period.end + 'T00:00:00Z');
