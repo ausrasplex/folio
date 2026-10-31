@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation';
 import AuthCard from '@/components/AuthCard';
 import { db } from '@/lib/server/db';
 import { currentUser, hashPassword, PASSWORD_RULE, passwordMatches, passwordProblem, requestIp, startSession } from '@/lib/server/auth';
+import { localOrVpn } from '@/lib/server/netrange';
 import { noMatchText, passwordLimit, passwordResult } from '@/lib/server/ratelimit';
 
 export const dynamic = 'force-dynamic';
@@ -12,11 +13,18 @@ async function validInvite(t: string) {
   return inv;
 }
 
+/** Whether this visitor may open invites. Unless the admin has turned it off, only from the home network or its VPN. */
+async function inviteReachable() {
+  const s = await db.serverSetting.findUnique({ where: { key: 'invitesLocalOnly' } });
+  if (s && s.value === false) return true;
+  return localOrVpn(await requestIp());
+}
+
 async function join(fd: FormData) {
   'use server';
   const t = String(fd.get('token') || '');
   const inv = await validInvite(t);
-  if (!inv) redirect('/join?t=' + encodeURIComponent(t));
+  if (!inv || !(await inviteReachable())) redirect('/join?t=' + encodeURIComponent(t));
   const signup = await db.serverSetting.findUnique({ where: { key: 'signup' } });
   const email = String(fd.get('email') || '').trim().toLowerCase();
   const pw = String(fd.get('password') || '');
@@ -45,6 +53,8 @@ async function join(fd: FormData) {
 
 export default async function Page({ searchParams }: { searchParams: Promise<{ t?: string; e?: string; w?: string }> }) {
   const sp = await searchParams;
+  // checked first: from outside, the page says nothing about the invite or the household
+  if (!(await inviteReachable())) return <AuthCard title="Open This Invite at Home" sub="Open this invite on the same network as the server, or over its VPN."><a className="abtn" href="/signin" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}>Go to sign in</a></AuthCard>;
   const inv = sp.t ? await validInvite(sp.t) : null;
   if (!inv) return <AuthCard title="This invite has expired" sub="Invite links work once and expire after 7 days. Ask for a new one." ><a className="abtn" href="/signin" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}>Go to sign in</a></AuthCard>;
   const me = await currentUser();

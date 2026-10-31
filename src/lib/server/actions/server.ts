@@ -2,12 +2,10 @@
 import { promises as dns } from 'dns';
 import { type Action, type Ctx, db, need, str } from '../actions';
 import { APP_VERSION, backupSettings, makeBackup } from '../backup';
+import { privateIp, vpnIp } from '../netrange';
 
 const admin = (c: Ctx) => need(c.u.isAdmin, 'Only the server admin can change server settings.');
 const set = (key: string, value: object | string | boolean | number) => db.serverSetting.upsert({ where: { key }, update: { value }, create: { key, value } });
-
-const privateIp = (ip: string) => /^(10\.|127\.|192\.168\.|169\.254\.|::1$|fc|fd|fe80)/i.test(ip) || /^172\.(1[6-9]|2\d|3[01])\./.test(ip);
-const vpnIp = (ip: string) => /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(ip); // CGNAT range used by Tailscale and similar
 
 export const serverActions: Record<string, Action> = {
   saveServer: async (c) => {
@@ -15,6 +13,7 @@ export const serverActions: Record<string, Action> = {
     const p = c.p;
     if ('signup' in p) await set('signup', p.signup === 'closed' ? 'closed' : 'invite');
     if ('allowOutside' in p) await set('allowOutside', !!p.allowOutside);
+    if ('invitesLocalOnly' in p) await set('invitesLocalOnly', !!p.invitesLocalOnly);
     if ('requireTwoStep' in p) {
       // the admin turns it on for themselves first, so this cannot lock them out of their own settings
       if (p.requireTwoStep) need(c.u.totpOn, 'Turn on two-step verification for your own account first, in your profile.');
