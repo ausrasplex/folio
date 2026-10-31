@@ -800,7 +800,7 @@ class Screen extends DCBase {
       const ok = t.status !== 'Needs attention';
       const range = (a, b) => { const A = new Date(a + 'T00:00:00Z'), B = new Date(b + 'T00:00:00Z'); return A.toLocaleDateString('en-AU', { day: 'numeric', month: 'short', timeZone: 'UTC', ...(A.getUTCFullYear() !== B.getUTCFullYear() ? { year: 'numeric' } : {}) }) + ' to ' + fmtIso(b); };
       return { id: t.id, sp: x.id, yr: Number(t.end.slice(0, 4)), ok, bg: 'background:var(--' + ['t1', 't2', 't3'][k % 3] + ')', title: (L.splits.length > 1 ? x.name + ' · ' : '') + range(t.start, t.end),
-        sub: ok ? (t.status === 'Reconciled' ? 'Reconciled · interest matches' : t.status) + (t.reviewedAt ? ' · reviewed' : '') : 'Needs attention · ' + (t.note || 'check the figures'),
+        sub: ok ? (t.status === 'Reconciled' ? 'Reconciled · ' + (/^Interest matches/.test(t.note || '') ? 'i' + t.note.slice(1) : 'interest matches') : t.status) + (t.reviewedAt ? ' · reviewed' : '') : 'Needs attention · ' + (t.note || 'check the figures'),
         why: t.note || '', opening: money(t.opening), interest: money(t.interest), credits: money(t.credits), closing: money(t.closing), end: t.end, file: t.file,
         detail: (t.layout ? 'Layout ' + t.layout.name + ', version ' + t.layout.version : 'Entered by hand') + ' · ' + t.status.toLowerCase() };
     })).sort((a, b) => (a.end < b.end ? 1 : -1));

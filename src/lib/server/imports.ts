@@ -69,7 +69,9 @@ export async function guessDest(userId: string, householdId: string, lenderName:
   return c[0]?.id || '';
 }
 
-/** Folio's interest check for a statement on a loan split without an offset. Used on import and by Check again. */
+/** Folio's interest check for a statement on a loan split with no linked offset accounts. Used on import and by Check again.
+ *  When the statement prints an offset benefit, that is taken as true: Folio works the interest out with no offset, on the
+ *  balance the bank charged, and takes the benefit off. */
 export async function interestStatus(read: Read, dest: { id: string; postingDay: number | null; dayCount: number }): Promise<{ status: string; note: string | null }> {
   if (read.interest == null) return { status: 'Reconciled', note: null };
   const sp = await db.loanSplit.findUnique({ where: { id: dest.id }, include: { rateChanges: { where: { deletedAt: null, confirmed: true }, orderBy: { effectiveDate: 'asc' } } } });
@@ -77,9 +79,13 @@ export async function interestStatus(read: Read, dest: { id: string; postingDay:
   const rateAt = (iso: string) => { let r = Number(sp?.startRate ?? 0); for (const c of confirmed) if (c.date <= iso) r = c.rate; return r; };
   // the day the bank charges interest on this loan, from its other statements (for a statement with no charges of its own)
   const usualDay = dest.postingDay ? null : chargeDay({ txns: (await db.txn.findMany({ where: { statement: { splitId: dest.id, deletedAt: null }, description: { contains: 'interest', mode: 'insensitive' }, debit: { gt: 0 } }, select: { date: true, description: true, debit: true } })).map((t) => ({ date: t.date.toISOString().slice(0, 10), description: t.description, debit: Number(t.debit) })) } as unknown as Pick<Read, 'txns'>);
-  const calc = engineInterest(read, { rateAt, confirmed, postingDay: dest.postingDay, usualDay, dayCount: dest.dayCount });
-  if (calc == null || Math.abs(calc - read.interest) <= 0.011) return { status: 'Reconciled', note: null };
-  return { status: 'Needs attention', note: 'Interest differs by $' + Math.abs(calc - read.interest).toFixed(2) + ' (statement $' + read.interest.toFixed(2) + ', Folio worked out $' + calc.toFixed(2) + ')' };
+  const benefit = read.offsetBenefit && read.offsetBenefit > 0 ? read.offsetBenefit : 0;
+  const gross = engineInterest(read, { rateAt, confirmed, postingDay: dest.postingDay, usualDay, dayCount: dest.dayCount, bankCharges: benefit > 0 });
+  if (gross == null) return { status: 'Reconciled', note: null };
+  const calc = Math.round((gross - benefit) * 100) / 100;
+  const after = benefit ? ', after the statement\'s offset benefit of $' + benefit.toFixed(2) : '';
+  if (Math.abs(calc - read.interest) <= 0.011) return { status: 'Reconciled', note: benefit ? 'Interest matches' + after : null };
+  return { status: 'Needs attention', note: 'Interest differs by $' + Math.abs(calc - read.interest).toFixed(2) + ' (statement $' + read.interest.toFixed(2) + ', Folio worked out $' + calc.toFixed(2) + after + ')' };
 }
 
 export async function saveImport(o: { fileId: string; destId: string; userId: string; householdId: string }) {
@@ -106,7 +112,7 @@ export async function saveImport(o: { fileId: string; destId: string; userId: st
   const st = await db.statement.create({ data: {
     householdId: o.householdId, splitId: dest.kind === 'split' ? dest.id : null, accountId: dest.kind === 'account' ? dest.id : null,
     periodStart: start, periodEnd: end, opening: read.opening, closing: read.closing, interest: read.interest || 0, credits: read.credits || 0, debits: read.debits || 0,
-    paymentsInAdvance: read.advance, rate: read.rate, status, statusNote: note, layoutVersionId: m.version.id, fileId: file.id, pages: read.pages, importedById: o.userId
+    paymentsInAdvance: read.advance, offsetBenefit: read.offsetBenefit ?? null, rate: read.rate, status, statusNote: note, layoutVersionId: m.version.id, fileId: file.id, pages: read.pages, importedById: o.userId
   } });
   await db.txn.createMany({ data: fresh.map((t, i) => ({ statementId: st.id, date: new Date(t.date + 'T00:00:00Z'), description: t.description.slice(0, 300), debit: t.debit, credit: t.credit, balance: t.balance, rate: t.rate, page: t.page, row: t.row, y: t.y ?? null, yh: t.yh ?? null, category: dest.kind === 'account' ? categorize(t.description, t.credit) : null, dedupeKey: dest.id + ':' + t.date + ':' + i })) });
   // a new rate shown on a loan statement becomes a rate change to confirm, but only when it is a change: the same

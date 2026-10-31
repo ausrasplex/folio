@@ -374,6 +374,7 @@ model Statement {
   credits         Decimal        @default(0) @db.Decimal(14, 2)
   debits          Decimal        @default(0) @db.Decimal(14, 2)
   paymentsInAdvance Decimal?     @db.Decimal(14, 2)
+  offsetBenefit     Decimal?     @db.Decimal(14, 2) // interest the offset saved, as the statement prints it
   rate            Decimal?       @db.Decimal(6, 4)
   status          String         @default("Imported") // Reconciled | Imported | Needs attention
   statusNote      String?

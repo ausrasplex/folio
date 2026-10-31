@@ -14,7 +14,9 @@ export type Check = { ok: boolean; text: string };
 export type Read = {
   format: 'PDF' | 'CSV'; pages: number; period: { start: string; end: string } | null;
   opening: number | null; closing: number | null; interest: number | null; credits: number | null; debits: number | null;
-  advance: number | null; rate: number | null; acct: string; txns: Txn[]; checks: Check[]; ok: boolean
+  advance: number | null; rate: number | null; acct: string; txns: Txn[]; checks: Check[]; ok: boolean;
+  /** Interest the loan's offset saved in the period, as the statement prints it. */
+  offsetBenefit?: number | null;
 };
 type Box = { page: number; box: number[] };
 export type PdfMap = Record<string, Box>;
@@ -137,6 +139,17 @@ function lines(items: Item[]) {
   return out.map((l) => l.sort((a, b) => a.x - b.x));
 }
 
+/** The "Interest Offset Benefit" a loan statement prints: the amount just under its label. */
+export function offsetBenefitIn(pages: Page[]): number | null {
+  for (const p of pages) {
+    const label = p.items.find((x) => /offset\s+benefit/i.test(x.s));
+    if (!label) continue;
+    const below = p.items.filter((x) => x !== label && x.y > label.y + 0.3 && x.y < label.y + 8 && Math.abs(x.x - label.x) < 4 && moneyIn(x.s) != null).sort((a, b) => a.y - b.y)[0];
+    if (below) return Math.abs(moneyIn(below.s)!);
+  }
+  return null;
+}
+
 export function readPdf(pages: Page[], map: PdfMap, kind: string): Read {
   const f = (k: string) => textIn(pages, map[k]);
   const pd = datesIn(f('period'));
@@ -168,7 +181,8 @@ export function readPdf(pages: Page[], map: PdfMap, kind: string): Read {
     format: 'PDF', pages: pages.length, period: pd.length >= 2 ? { start: pd[0], end: pd[1] } : null,
     opening: num('opening'), closing: num('closing'), interest: kind === 'loan' ? num('interest') : null,
     credits: num('credits'), debits: kind === 'loan' ? num('debits') : num('debits'), advance: num('advance'), rate: rateIn(f('rate')),
-    acct: (f('acct').match(/\d[\d\s-]{3,}\d/) || [''])[0].replace(/\s+/g, ' '), txns, checks: [], ok: false
+    acct: (f('acct').match(/\d[\d\s-]{3,}\d/) || [''])[0].replace(/\s+/g, ' '), txns, checks: [], ok: false,
+    offsetBenefit: kind === 'loan' ? (map.offsetBenefit ? num('offsetBenefit') : offsetBenefitIn(pages)) : null
   };
   return finish(r, kind);
 }
@@ -340,7 +354,7 @@ export function chargeDay(read: Pick<Read, 'txns'>): number | null {
  * - Each day uses the rate in effect that day: the statement's rate lines, plus rate changes confirmed in Folio
  *   that fall within the statement (a statement line wins on the same day).
  */
-export function engineInterest(read: Read, opts: { rateAt: (iso: string) => number; confirmed: { date: string; rate: number }[]; postingDay?: number | null; usualDay?: number | null; dayCount?: number }) {
+export function engineInterest(read: Read, opts: { rateAt: (iso: string) => number; confirmed: { date: string; rate: number }[]; postingDay?: number | null; usualDay?: number | null; dayCount?: number; bankCharges?: boolean }) {
   if (!read.period || read.opening == null) return null;
   const start = new Date(read.period.start + 'T00:00:00Z'), end = new Date(read.period.end + 'T00:00:00Z');
   // the loan's posting day; else the day this statement's interest lines fall on; else the day the loan's other
@@ -360,6 +374,9 @@ export function engineInterest(read: Read, opts: { rateAt: (iso: string) => numb
   const fromLines = new Set(lines.map((t) => t.date));
   for (const c of opts.confirmed) if (c.date > fromIso && c.date <= read.period.end && !fromLines.has(c.date)) rates.push({ from: new Date(c.date + 'T00:00:00Z'), rate: c.rate });
   for (const t of lines) rates.push({ from: new Date(t.date + 'T00:00:00Z'), rate: t.rate });
-  const res = runDaily({ splits: [{ id: 's', name: 's', kind: 'VARIABLE', balance: read.opening, rates }], movements: moves, postingDay, dayCount: opts.dayCount ?? 365 }, from, end);
+  // bankCharges: the balance carries the interest the bank charged (from the day after each charge), not Folio's own
+  // figure, so an offset's saving is not compounded into the following months
+  const charges = opts.bankCharges ? read.txns.filter((t) => /interest/i.test(t.description) && t.debit > 0).map((t) => ({ date: new Date(new Date(t.date + 'T00:00:00Z').getTime() + DAY_MS), splitId: 's', amount: new Decimal(-t.debit) })) : [];
+  const res = runDaily({ splits: [{ id: 's', name: 's', kind: 'VARIABLE', balance: read.opening, rates }], movements: moves.concat(charges), postingDay, dayCount: opts.dayCount ?? 365, capitalise: !opts.bankCharges }, from, end);
   return res.totalInterest.toNumber();
 }

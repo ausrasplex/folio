@@ -1,6 +1,6 @@
 import { type Action, type Ctx, db, Fail, hh, need, str } from '../actions';
 import { interestStatus, saveImport } from '../imports';
-import { matchFile, UNREADABLE, type Read } from '../importer';
+import { matchFile, offsetBenefitIn, pdfPages, UNREADABLE, type Read } from '../importer';
 
 /** A statement on a loan or account you can see. */
 async function myStatement(c: Ctx, id: unknown, deleted = false) {
@@ -50,8 +50,16 @@ export const statementActions: Record<string, Action> = {
       if (!split || split.loan.offsetAccounts.length) continue; // interest is not re-worked for loans with an offset
       const txns = await db.txn.findMany({ where: { statementId: s.id }, orderBy: [{ date: 'asc' }, { row: 'asc' }] });
       const iso = (d: Date) => d.toISOString().slice(0, 10);
+      // statements imported before the offset benefit was kept: read it from the stored PDF once (0 when it prints none)
+      let benefit = s.offsetBenefit == null ? null : Number(s.offsetBenefit);
+      if (benefit == null && s.fileId) {
+        const f = await db.storedFile.findUnique({ where: { id: s.fileId } });
+        if (f && f.mime === 'application/pdf') {
+          try { benefit = offsetBenefitIn(await pdfPages(Buffer.from(f.data))) ?? 0; await db.statement.update({ where: { id: s.id }, data: { offsetBenefit: benefit } }); } catch { /* checked without it */ }
+        }
+      }
       const read = {
-        period: { start: iso(s.periodStart), end: iso(s.periodEnd) }, opening: Number(s.opening), closing: Number(s.closing), interest: Number(s.interest),
+        period: { start: iso(s.periodStart), end: iso(s.periodEnd) }, opening: Number(s.opening), closing: Number(s.closing), interest: Number(s.interest), offsetBenefit: benefit,
         txns: txns.map((t) => ({ date: iso(t.date), description: t.description, debit: Number(t.debit), credit: Number(t.credit), balance: t.balance == null ? null : Number(t.balance), rate: t.rate == null ? null : Number(t.rate) }))
       } as unknown as Read;
       const r = await interestStatus(read, { id: split.id, postingDay: split.loan.postingDay, dayCount: split.loan.lender.dayCount });

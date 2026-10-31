@@ -109,6 +109,8 @@ export interface DailyInput {
   postingDay: number;
   dayCount?: number;
   order?: OffsetOrder;
+  /** false: interest worked out is not added to the balance (the bank's own interest charges come in as movements). */
+  capitalise?: boolean;
 }
 
 /** Run the daily ledger from `from` to `to`, both inclusive. */
@@ -135,7 +137,7 @@ export function runDaily(input: DailyInput, from: Date, to: Date): DailyResult {
       for (const s of input.splits) {
         const amt = pending[s.id].toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
         if (amt.gt(0)) {
-          balances[s.id] = balances[s.id].plus(amt);
+          if (input.capitalise !== false) balances[s.id] = balances[s.id].plus(amt);
           postings.push({ date: day, splitId: s.id, amount: amt });
           totalInterest = totalInterest.plus(amt);
         }

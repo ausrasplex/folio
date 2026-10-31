@@ -59,6 +59,22 @@ describe('interest check', () => {
     const read = statement(() => 5, []);
     expect(engineInterest(read, { rateAt: () => 5, confirmed: [] })).toBe(read.interest);
   });
+  it("checks against the statement's offset benefit, worked out on the balance the bank charged", () => {
+    // the bank charges interest on the balance less a $150,000 offset and prints what the offset saved
+    let bal = 400000, net = 0, gross = 0, total = 0, grossCharged = 0;
+    const charges: { date: string; amount: number }[] = [];
+    for (let t = Date.UTC(2026, 0, 11); t <= tEnd; t += DAY) {
+      net += (bal - 150000) * 5 / 100 / 365; gross += bal * 5 / 100 / 365;
+      if (new Date(t).getUTCDate() === 10) { const amt = Math.round(net * 100) / 100; bal += amt; total += amt; grossCharged += gross; charges.push({ date: iso(t), amount: amt }); net = 0; gross = 0; }
+    }
+    const benefit = Math.round((grossCharged - total) * 100) / 100;
+    const read = { period: { start: iso(t0), end: iso(tEnd) }, opening: 400000, closing: bal, interest: Math.round(total * 100) / 100, offsetBenefit: benefit,
+      txns: [{ date: iso(t0), description: 'Opening Balance Interest Rate 5% PA', debit: 0, credit: 0, balance: null, rate: 5 }, ...charges.map((c) => ({ date: c.date, description: 'INTEREST', debit: c.amount, credit: 0, balance: null, rate: null }))] } as unknown as Read;
+    const onBank = engineInterest(read, { rateAt: () => 5, confirmed: [], bankCharges: true })!;
+    expect(Math.abs(onBank - benefit - read.interest!)).toBeLessThanOrEqual(0.011);
+    // on Folio's own balance the saving compounds and the check falls short
+    expect(engineInterest(read, { rateAt: () => 5, confirmed: [] })! - benefit - read.interest!).toBeGreaterThan(1);
+  });
 });
 
 describe('the rate in effect on a day', () => {
