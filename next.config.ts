@@ -30,7 +30,14 @@ const nextConfig: NextConfig = {
   // statements are read by pdf.js in a worker thread that loads it by path, so the standalone build must copy it in
   outputFileTracingIncludes: { '/**': ['./node_modules/pdfjs-dist/legacy/build/**', './node_modules/pdfjs-dist/standard_fonts/**'] },
   experimental: { serverActions: { bodySizeLimit: '30mb' } },
-  async headers() { return [{ source: '/:path*', headers: securityHeaders }]; }
+  // Stored statements and fetched images get a stricter policy: nothing in them may run or load, even opened directly.
+  // (A rule here replaces a header the route sets itself, so those routes are left out of the page rule.)
+  async headers() {
+    return [
+      { source: '/((?!api/file/|api/image).*)', headers: securityHeaders },
+      { source: '/api/(file/.*|image)', headers: [...securityHeaders.filter((h) => h.key !== 'Content-Security-Policy'), { key: 'Content-Security-Policy', value: "sandbox; default-src 'none'; frame-ancestors 'none'" }] }
+    ];
+  }
 };
 
 export default nextConfig;

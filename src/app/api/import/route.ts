@@ -3,6 +3,7 @@ import { currentMembership, currentUser, twoStepBlock } from '@/lib/server/auth'
 import { db } from '@/lib/server/db';
 import { matchFile, UNREADABLE } from '@/lib/server/importer';
 import { guessDest, saveImport } from '@/lib/server/imports';
+import { fileProblem } from '@/lib/server/filecheck';
 import { IMPORT_MAX, readForm, tooLarge } from '@/lib/server/limits';
 import { attemptsSince, importKey, IMPORTS_PER_MINUTE, recordAttempt } from '@/lib/server/ratelimit';
 
@@ -28,8 +29,11 @@ export async function POST(req: Request) {
   if (f.size > 25 * 1024 * 1024) return Response.json({ error: f.name + ' is larger than 25 MB.' }, { status: 400 });
   if (!/\.(pdf|csv)$/i.test(f.name)) return Response.json({ error: f.name + ' is not a PDF or CSV file.' }, { status: 400 });
   const buf = Buffer.from(await f.arrayBuffer());
+  // the contents must match the name: a PDF starts with %PDF-, a CSV is UTF-8 text
+  const problem = fileProblem(f.name, buf);
+  if (problem) return Response.json({ error: problem }, { status: 400 });
   const dest = String(fd.get('dest') || '');
-  const stored = await db.storedFile.create({ data: { name: f.name.slice(0, 200), mime: f.type || (/\.csv$/i.test(f.name) ? 'text/csv' : 'application/pdf'), size: f.size, data: buf, pending: { householdId: m.householdId, userId: u.id, dest } } });
+  const stored = await db.storedFile.create({ data: { name: f.name.slice(0, 200), mime: /\.csv$/i.test(f.name) ? 'text/csv' : 'application/pdf', size: f.size, data: buf, pending: { householdId: m.householdId, userId: u.id, dest } } });
   let match;
   try { match = await matchFile(buf, f.name, stored.mime); } catch (e) {
     return Response.json({ fileId: stored.id, name: f.name, error: e instanceof Error && e.message === UNREADABLE ? UNREADABLE : UNREADABLE + ' ' + (e instanceof Error ? e.message : ''), layout: null });
