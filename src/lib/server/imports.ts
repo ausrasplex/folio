@@ -14,9 +14,9 @@ export type Dest = { kind: 'split'; id: string; loanId: string; name: string; of
 export async function destinations(userId: string, householdId: string) {
   const loans = await db.loan.findMany({ where: { householdId, status: 'active', borrowers: { some: { userId } } }, include: { lender: true, splits: { where: { deletedAt: null }, orderBy: { sortOrder: 'asc' } }, offsetAccounts: { where: { deletedAt: null, closedAt: null } } } });
   const accts = await db.account.findMany({ where: { householdId, deletedAt: null, closedAt: null, holders: { some: { userId } } }, include: { lender: true } });
-  const out: (Dest & { lender: string; label: string; suffix?: string; number?: string })[] = [];
+  const out: (Dest & { lender: string; label: string; suffix?: string; suffixSaved?: boolean; number?: string })[] = [];
   // a split without a saved suffix is 01, 02 … in order, as the screens show it
-  for (const l of loans) l.splits.forEach((s, k) => out.push({ kind: 'split', id: s.id, loanId: l.id, name: l.name + (l.splits.length > 1 ? ' · ' + s.name : ''), offset: l.offsetAccounts.length > 0, postingDay: l.postingDay, dayCount: l.lender.dayCount, lender: l.lender.name, label: l.splits.length > 1 ? 'Loan split' : 'Loan', suffix: s.accountSuffix || String(k + 1).padStart(2, '0'), number: digits(dec(l.accountNumber)) }));
+  for (const l of loans) l.splits.forEach((s, k) => out.push({ kind: 'split', id: s.id, loanId: l.id, name: l.name + (l.splits.length > 1 ? ' · ' + s.name : ''), offset: l.offsetAccounts.length > 0, postingDay: l.postingDay, dayCount: l.lender.dayCount, lender: l.lender.name, label: l.splits.length > 1 ? 'Loan split' : 'Loan', suffix: s.accountSuffix || String(k + 1).padStart(2, '0'), suffixSaved: !!s.accountSuffix, number: digits(dec(l.accountNumber)) }));
   for (const a of accts) out.push({ kind: 'account', id: a.id, name: a.name, lender: a.lender.name, label: 'Account' });
   return out;
 }
@@ -44,7 +44,8 @@ export async function checkDest(userId: string, householdId: string, dest: strin
   const all = await destinations(userId, householdId);
   const cur = all.find((d) => d.id === dest);
   if (!cur || cur.kind !== 'split') return dest;
-  const { hits, byNumber } = byAccount(all, read.acct);
+  // only a suffix that was saved (typed in, or learnt from a statement) can move it; the 01, 02 … guess cannot
+  const { hits, byNumber } = byAccount(all.map((d) => ('suffixSaved' in d && !d.suffixSaved ? { ...d, suffix: undefined } : d)), read.acct);
   if (hits.length !== 1 || hits[0].id === dest) return dest;
   const h = hits[0];
   return h.kind === 'split' && (byNumber || h.loanId === cur.loanId) ? h.id : dest;
@@ -118,6 +119,9 @@ export async function saveImport(o: { fileId: string; destId: string; userId: st
   // a new rate shown on a loan statement becomes a rate change to confirm, but only when it is a change: the same
   // rate repeated (for example on each statement's opening line) is not
   if (dest.kind === 'split') {
+    // a split with no saved suffix takes the one this statement's account number ends with (…00, …01)
+    const tail = (read.acct || '').replace(/\D/g, '');
+    if (tail.length >= 4) await db.loanSplit.updateMany({ where: { id: dest.id, OR: [{ accountSuffix: null }, { accountSuffix: '' }] }, data: { accountSuffix: tail.slice(-2) } });
     const sp = await db.loanSplit.findUnique({ where: { id: dest.id }, include: { rateChanges: { where: { deletedAt: null } } } });
     const known = sp!.rateChanges.map((c) => ({ date: c.effectiveDate, rate: Number(c.rate) }));
     const add = async (date: Date, rate: number) => {
