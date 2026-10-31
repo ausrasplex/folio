@@ -2,7 +2,7 @@
 import { Prisma } from '@prisma/client';
 import { db } from './db';
 import { categorize } from './state';
-import { engineInterest, matchFile, type Read } from './importer';
+import { chargeDay, engineInterest, matchFile, type Read } from './importer';
 
 export type Dest = { kind: 'split'; id: string; loanId: string; name: string; offset: boolean; postingDay: number | null; dayCount: number } | { kind: 'account'; id: string; name: string };
 
@@ -35,6 +35,26 @@ export async function guessDest(userId: string, householdId: string, lenderName:
   return c[0]?.id || '';
 }
 
+/** The rate in effect on a day: the latest known change on or before it (confirmed or not), else the loan's own rate. */
+export function rateInEffect(startRate: number, known: { date: Date; rate: number }[], day: Date) {
+  let r = startRate, at = -Infinity;
+  for (const c of known) if (+c.date <= +day && +c.date >= at) { r = c.rate; at = +c.date; }
+  return r;
+}
+
+/** Folio's interest check for a statement on a loan split without an offset. Used on import and by Check again. */
+export async function interestStatus(read: Read, dest: { id: string; postingDay: number | null; dayCount: number }): Promise<{ status: string; note: string | null }> {
+  if (read.interest == null) return { status: 'Reconciled', note: null };
+  const sp = await db.loanSplit.findUnique({ where: { id: dest.id }, include: { rateChanges: { where: { deletedAt: null, confirmed: true }, orderBy: { effectiveDate: 'asc' } } } });
+  const confirmed = (sp?.rateChanges || []).map((c) => ({ date: c.effectiveDate.toISOString().slice(0, 10), rate: Number(c.rate) }));
+  const rateAt = (iso: string) => { let r = Number(sp?.startRate ?? 0); for (const c of confirmed) if (c.date <= iso) r = c.rate; return r; };
+  // the day the bank charges interest on this loan, from its other statements (for a statement with no charges of its own)
+  const usualDay = dest.postingDay ? null : chargeDay({ txns: (await db.txn.findMany({ where: { statement: { splitId: dest.id, deletedAt: null }, description: { contains: 'interest', mode: 'insensitive' }, debit: { gt: 0 } }, select: { date: true, description: true, debit: true } })).map((t) => ({ date: t.date.toISOString().slice(0, 10), description: t.description, debit: Number(t.debit) })) } as unknown as Pick<Read, 'txns'>);
+  const calc = engineInterest(read, { rateAt, confirmed, postingDay: dest.postingDay, usualDay, dayCount: dest.dayCount });
+  if (calc == null || Math.abs(calc - read.interest) <= 0.011) return { status: 'Reconciled', note: null };
+  return { status: 'Needs attention', note: 'Interest differs by $' + Math.abs(calc - read.interest).toFixed(2) + ' (statement $' + read.interest.toFixed(2) + ', Folio worked out $' + calc.toFixed(2) + ')' };
+}
+
 export async function saveImport(o: { fileId: string; destId: string; userId: string; householdId: string }) {
   const file = await db.storedFile.findUnique({ where: { id: o.fileId } });
   if (!file || !file.pending || (file.pending as { householdId?: string }).householdId !== o.householdId) throw new Error('That file is not waiting to be imported.');
@@ -55,29 +75,27 @@ export async function saveImport(o: { fileId: string; destId: string; userId: st
   const existing = new Set((await db.txn.findMany({ where: { statement: { ...where, deletedAt: null }, date: { gte: start, lte: end } }, select: { date: true, debit: true, credit: true, description: true } })).map((t) => t.date.toISOString().slice(0, 10) + '|' + Number(t.debit) + '|' + Number(t.credit) + '|' + t.description));
   const fresh = read.txns.filter((t) => !existing.has(t.date + '|' + t.debit + '|' + t.credit + '|' + t.description));
   let status = dest.kind === 'split' ? 'Reconciled' : 'Imported', note: string | null = null;
-  if (dest.kind === 'split' && !dest.offset && read.interest != null) {
-    const sp = await db.loanSplit.findUnique({ where: { id: dest.id }, include: { rateChanges: { where: { deletedAt: null, confirmed: true }, orderBy: { effectiveDate: 'asc' } } } });
-    const rateFrom = (isoD: string) => { let r = Number(sp!.startRate); for (const c of sp!.rateChanges) if (c.effectiveDate <= new Date(isoD + 'T00:00:00Z')) r = Number(c.rate); return r; };
-    const pd = dest.postingDay || end.getUTCDate();
-    const calc = engineInterest(read, rateFrom, pd, dest.dayCount);
-    if (calc != null && Math.abs(calc - read.interest) > 0.011) { status = 'Needs attention'; note = 'Interest differs by $' + Math.abs(calc - read.interest).toFixed(2) + ' (statement $' + read.interest.toFixed(2) + ', Folio worked out $' + calc.toFixed(2) + ')'; }
-  }
+  if (dest.kind === 'split' && !dest.offset) ({ status, note } = await interestStatus(read, dest));
   const st = await db.statement.create({ data: {
     householdId: o.householdId, splitId: dest.kind === 'split' ? dest.id : null, accountId: dest.kind === 'account' ? dest.id : null,
     periodStart: start, periodEnd: end, opening: read.opening, closing: read.closing, interest: read.interest || 0, credits: read.credits || 0, debits: read.debits || 0,
     paymentsInAdvance: read.advance, rate: read.rate, status, statusNote: note, layoutVersionId: m.version.id, fileId: file.id, pages: read.pages, importedById: o.userId
   } });
   await db.txn.createMany({ data: fresh.map((t, i) => ({ statementId: st.id, date: new Date(t.date + 'T00:00:00Z'), description: t.description.slice(0, 300), debit: t.debit, credit: t.credit, balance: t.balance, rate: t.rate, page: t.page, row: t.row, y: t.y ?? null, yh: t.yh ?? null, category: dest.kind === 'account' ? categorize(t.description, t.credit) : null, dedupeKey: dest.id + ':' + t.date + ':' + i })) });
-  // a new rate shown on a loan statement becomes a rate change to confirm
+  // a new rate shown on a loan statement becomes a rate change to confirm, but only when it is a change: the same
+  // rate repeated (for example on each statement's opening line) is not
   if (dest.kind === 'split') {
     const sp = await db.loanSplit.findUnique({ where: { id: dest.id }, include: { rateChanges: { where: { deletedAt: null } } } });
-    const known = (d: string, r: number) => sp!.rateChanges.some((c) => Math.abs(Number(c.rate) - r) < 0.0001 && Math.abs(+c.effectiveDate - +new Date(d + 'T00:00:00Z')) < 3 * 86400000);
-    const lines = read.txns.filter((t) => t.rate != null) as (typeof read.txns[number] & { rate: number })[];
-    for (const t of lines) if (!known(t.date, t.rate)) await db.rateChange.create({ data: { splitId: dest.id, effectiveDate: new Date(t.date + 'T00:00:00Z'), rate: t.rate, confirmed: false, source: 'statement' } });
-    if (!lines.length && read.rate != null) {
-      let cur = Number(sp!.startRate); for (const c of [...sp!.rateChanges].sort((a, b) => +a.effectiveDate - +b.effectiveDate)) if (c.effectiveDate <= end) cur = Number(c.rate);
-      if (Math.abs(cur - read.rate) > 0.0001) await db.rateChange.create({ data: { splitId: dest.id, effectiveDate: end, rate: read.rate, confirmed: false, source: 'statement' } });
-    }
+    const known = sp!.rateChanges.map((c) => ({ date: c.effectiveDate, rate: Number(c.rate) }));
+    const add = async (date: Date, rate: number) => {
+      if (Math.abs(rateInEffect(Number(sp!.startRate), known, date) - rate) < 0.0001) return;
+      if (known.some((c) => Math.abs(c.rate - rate) < 0.0001 && Math.abs(+c.date - +date) < 3 * 86400000)) return;
+      await db.rateChange.create({ data: { splitId: dest.id, effectiveDate: date, rate, confirmed: false, source: 'statement' } });
+      known.push({ date, rate });
+    };
+    const lines = (read.txns.filter((t) => t.rate != null) as (typeof read.txns[number] & { rate: number })[]).sort((a, b) => (a.date < b.date ? -1 : 1));
+    for (const t of lines) await add(new Date(t.date + 'T00:00:00Z'), t.rate);
+    if (!lines.length && read.rate != null) await add(end, read.rate);
   }
   await db.storedFile.update({ where: { id: file.id }, data: { pending: Prisma.DbNull } });
   return { statementId: st.id, status, note, skipped: read.txns.length - fresh.length };

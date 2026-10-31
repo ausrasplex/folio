@@ -320,13 +320,46 @@ export function textFinder(text: string) {
   };
 }
 
-/** Engine check for loans without an offset: works the interest out from the daily balances and compares. */
-export function engineInterest(read: Read, rateFrom: (iso: string) => number, postingDay: number, dayCount = 365) {
+const DAY_MS = 86400000;
+const isInterest = (t: { description: string; debit: number }) => /interest/i.test(t.description) && !/rate/i.test(t.description) && t.debit > 0;
+
+/** The day of the month the bank charges interest, read from the statement's own interest lines (the most common
+ *  day among them), or null when it has none. */
+export function chargeDay(read: Pick<Read, 'txns'>): number | null {
+  const days: Record<number, number> = {};
+  for (const t of read.txns) if (isInterest(t)) { const d = Number(t.date.slice(8, 10)); days[d] = (days[d] || 0) + 1; }
+  const best = Object.entries(days).sort((a, b) => b[1] - a[1])[0];
+  return best ? Number(best[0]) : null;
+}
+
+/**
+ * Engine check for loans without an offset: works the interest out from the daily balances and compares.
+ * - Interest is charged on the loan's posting day if set, else the day the statement's interest lines fall on.
+ * - The first charge in a statement covers days before it starts, so counting begins the day after the previous
+ *   charge (at the opening balance).
+ * - Each day uses the rate in effect that day: the statement's rate lines, plus rate changes confirmed in Folio
+ *   that fall within the statement (a statement line wins on the same day).
+ */
+export function engineInterest(read: Read, opts: { rateAt: (iso: string) => number; confirmed: { date: string; rate: number }[]; postingDay?: number | null; usualDay?: number | null; dayCount?: number }) {
   if (!read.period || read.opening == null) return null;
   const start = new Date(read.period.start + 'T00:00:00Z'), end = new Date(read.period.end + 'T00:00:00Z');
+  // the loan's posting day; else the day this statement's interest lines fall on; else the day the loan's other
+  // statements show (usualDay); else, as a last resort, the statement's last day
+  const postingDay = opts.postingDay || chargeDay(read) || opts.usualDay || end.getUTCDate();
+  // the previous charge: the latest posting day before the statement starts (looking back up to a month)
+  let from = start;
+  for (let d = new Date(start.getTime() - DAY_MS), i = 0; i < 31; i++, d = new Date(d.getTime() - DAY_MS)) {
+    if (d.getUTCDate() === postingDay) { from = new Date(d.getTime() + DAY_MS); break; }
+  }
   const moves = read.txns.filter((t) => !/interest/i.test(t.description) && (t.credit || t.debit)).map((t) => ({ date: new Date(t.date + 'T00:00:00Z'), splitId: 's', amount: new Decimal(t.credit).minus(t.debit) }));
-  const rates: { from: Date; rate: number }[] = [{ from: new Date(0), rate: rateFrom(read.period.start) }];
-  for (const t of read.txns) if (t.rate != null) rates.push({ from: new Date(t.date + 'T00:00:00Z'), rate: t.rate });
-  const res = runDaily({ splits: [{ id: 's', name: 's', kind: 'VARIABLE', balance: read.opening, rates }], movements: moves, postingDay, dayCount }, start, end);
+  // the rate before the statement: its opening rate line when it has one, else the rate Folio knows for that day
+  const lines = read.txns.filter((t) => t.rate != null) as (Read['txns'][number] & { rate: number })[];
+  const opening = lines.find((t) => t.date <= read.period!.start);
+  const fromIso = from.toISOString().slice(0, 10);
+  const rates: { from: Date; rate: number }[] = [{ from: new Date(0), rate: opening ? opening.rate : opts.rateAt(fromIso) }];
+  const fromLines = new Set(lines.map((t) => t.date));
+  for (const c of opts.confirmed) if (c.date > fromIso && c.date <= read.period.end && !fromLines.has(c.date)) rates.push({ from: new Date(c.date + 'T00:00:00Z'), rate: c.rate });
+  for (const t of lines) rates.push({ from: new Date(t.date + 'T00:00:00Z'), rate: t.rate });
+  const res = runDaily({ splits: [{ id: 's', name: 's', kind: 'VARIABLE', balance: read.opening, rates }], movements: moves, postingDay, dayCount: opts.dayCount ?? 365 }, from, end);
   return res.totalInterest.toNumber();
 }

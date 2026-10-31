@@ -1,6 +1,6 @@
 import { type Action, type Ctx, db, Fail, hh, need, str } from '../actions';
-import { saveImport } from '../imports';
-import { matchFile, UNREADABLE } from '../importer';
+import { interestStatus, saveImport } from '../imports';
+import { matchFile, UNREADABLE, type Read } from '../importer';
 
 /** A statement on a loan or account you can see. */
 async function myStatement(c: Ctx, id: unknown, deleted = false) {
@@ -36,6 +36,30 @@ export const statementActions: Record<string, Action> = {
     const ids = (Array.isArray(c.p.ids) ? c.p.ids : [c.p.fileId]).map(String);
     const files = await db.storedFile.findMany({ where: { id: { in: ids }, statements: { none: {} } } });
     for (const f of files) if ((f.pending as { householdId?: string } | null)?.householdId === hh(c)) await db.storedFile.delete({ where: { id: f.id } });
+  },
+  /** Runs the interest check again on loan statements you can see (after a rate or posting-day change, or a fix to
+   *  the check). A statement that now matches becomes Reconciled; one that differs is flagged, unless someone has
+   *  already reviewed it and kept the statement's figure. */
+  recheckStatements: async (c) => {
+    const ids = (Array.isArray(c.p.ids) ? c.p.ids : [c.p.id]).map(String);
+    const out = { checked: 0, reconciled: 0, attention: 0, notes: [] as string[] };
+    for (const id of ids) {
+      const s = await myStatement(c, id);
+      if (!s.splitId) continue;
+      const split = await db.loanSplit.findUnique({ where: { id: s.splitId }, include: { loan: { include: { lender: true, offsetAccounts: { where: { deletedAt: null, closedAt: null } } } } } });
+      if (!split || split.loan.offsetAccounts.length) continue; // interest is not re-worked for loans with an offset
+      const txns = await db.txn.findMany({ where: { statementId: s.id }, orderBy: [{ date: 'asc' }, { row: 'asc' }] });
+      const iso = (d: Date) => d.toISOString().slice(0, 10);
+      const read = {
+        period: { start: iso(s.periodStart), end: iso(s.periodEnd) }, opening: Number(s.opening), closing: Number(s.closing), interest: Number(s.interest),
+        txns: txns.map((t) => ({ date: iso(t.date), description: t.description, debit: Number(t.debit), credit: Number(t.credit), balance: t.balance == null ? null : Number(t.balance), rate: t.rate == null ? null : Number(t.rate) }))
+      } as unknown as Read;
+      const r = await interestStatus(read, { id: split.id, postingDay: split.loan.postingDay, dayCount: split.loan.lender.dayCount });
+      out.checked++;
+      if (r.status === 'Reconciled') { out.reconciled++; await db.statement.update({ where: { id: s.id }, data: { status: 'Reconciled', statusNote: null } }); }
+      else { out.attention++; if (r.note) out.notes.push(r.note); if (!s.reviewedAt) await db.statement.update({ where: { id: s.id }, data: { status: 'Needs attention', statusNote: r.note } }); }
+    }
+    return out;
   },
   reviewStatement: async (c) => {
     const s = await myStatement(c, c.p.id);
