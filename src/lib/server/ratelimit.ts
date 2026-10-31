@@ -47,6 +47,15 @@ export function noMatchText(minutes?: string | number) {
 export const CODES_PER_SESSION = 5;
 export const totpKey = (userId: string) => 'totp:' + userId;
 
+/** Statement uploads: at most this many a minute per person (key import:<userId>). */
+export const IMPORTS_PER_MINUTE = 20;
+export const importKey = (userId: string) => 'import:' + userId;
+
+/** Every attempt for a key since a time, good or bad. */
+export async function attemptsSince(key: string, since: Date) {
+  return db.loginAttempt.count({ where: { key, at: { gte: since } } });
+}
+
 /** Wrong codes for a key since a time (a pending session's start). */
 export async function failuresSince(key: string, since: Date) {
   return db.loginAttempt.count({ where: { key, ok: false, at: { gte: since } } });

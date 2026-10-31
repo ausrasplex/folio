@@ -3,6 +3,8 @@ import { currentMembership, currentUser, twoStepBlock } from '@/lib/server/auth'
 import { db } from '@/lib/server/db';
 import { matchFile } from '@/lib/server/importer';
 import { guessDest, saveImport } from '@/lib/server/imports';
+import { IMPORT_MAX, readForm, tooLarge } from '@/lib/server/limits';
+import { attemptsSince, importKey, IMPORTS_PER_MINUTE, recordAttempt } from '@/lib/server/ratelimit';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -15,7 +17,12 @@ export async function POST(req: Request) {
   { const blocked = await twoStepBlock(u); if (blocked) return blocked; } // required two-step not on yet
   const { m } = await currentMembership(u);
   if (!m) return Response.json({ error: 'You are not in a household yet.' }, { status: 400 });
-  const fd = await req.formData();
+  // at most 20 files a minute per person
+  const key = importKey(u.id);
+  if ((await attemptsSince(key, new Date(Date.now() - 60000))) >= IMPORTS_PER_MINUTE) return Response.json({ error: "You've sent " + IMPORTS_PER_MINUTE + ' files in the last minute. Wait a minute, then send the rest.' }, { status: 429 });
+  await recordAttempt(key, true, null);
+  const fd = await readForm(req, IMPORT_MAX);
+  if (!fd) return tooLarge('That file is larger than 25 MB. Statements are usually much smaller; check it is the right file.');
   const f = fd.get('file');
   if (!(f instanceof File)) return Response.json({ error: 'Choose a file' }, { status: 400 });
   if (f.size > 25 * 1024 * 1024) return Response.json({ error: f.name + ' is larger than 25 MB.' }, { status: 400 });

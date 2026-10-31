@@ -1,6 +1,7 @@
 import { crossSiteBlock } from '@/lib/server/origin';
 import { currentUser, twoStepBlock } from '@/lib/server/auth';
 import { readBackup, restoreBackup } from '@/lib/server/backup';
+import { MB, readForm, restoreMax, tooLarge } from '@/lib/server/limits';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 600;
@@ -11,7 +12,8 @@ export async function POST(req: Request) {
   const u = await currentUser();
   if (!u || !u.isAdmin) return Response.json({ error: 'Only the server admin can restore a backup.' }, { status: 403 });
   { const blocked = await twoStepBlock(u); if (blocked) return blocked; } // required two-step not on yet
-  const fd = await req.formData();
+  const fd = await readForm(req, restoreMax());
+  if (!fd) return tooLarge('That backup is larger than ' + Math.round(restoreMax() / MB) + ' MB, the most this server accepts. Raise FOLIO_MAX_RESTORE_MB to restore it.');
   const f = fd.get('file');
   if (!(f instanceof File)) return Response.json({ error: 'Choose a backup file' }, { status: 400 });
   const buf = Buffer.from(await f.arrayBuffer());

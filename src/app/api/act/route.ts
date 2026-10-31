@@ -1,6 +1,7 @@
 import { crossSiteBlock } from '@/lib/server/origin';
 import { currentUser, currentMembership, needsTwoStep, TWO_STEP_ACTIONS, TWO_STEP_NEEDED } from '@/lib/server/auth';
 import { ACTIONS, Fail } from '@/lib/server/actions';
+import { ACT_MAX, readBody, tooLarge } from '@/lib/server/limits';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,7 +10,9 @@ export async function POST(req: Request) {
   const u = await currentUser();
   if (!u) return Response.json({ error: 'Sign in again' }, { status: 401 });
   let body: { kind?: string; payload?: Record<string, unknown> };
-  try { body = await req.json(); } catch { return Response.json({ error: 'Bad request' }, { status: 400 }); }
+  const raw = await readBody(req, ACT_MAX);
+  if (!raw) return tooLarge('That is too much to send at once (over 2 MB). Use smaller images and try again.');
+  try { body = JSON.parse(raw.toString('utf8')); } catch { return Response.json({ error: 'Bad request' }, { status: 400 }); }
   const fn = body.kind ? ACTIONS[body.kind] : undefined;
   if (!fn) return Response.json({ error: 'Unknown action ' + body.kind }, { status: 400 });
   // until required two-step is on, only setting it up works
