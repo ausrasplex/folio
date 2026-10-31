@@ -9,7 +9,8 @@ public/pdf-fonts
 tools/testdata/home-split01.json
 tools/testdata/home-split01.pdf
 tools/testdata/cu-export.csv
-docs/
+docs/*
+!docs/security/
 public/logo.vectorcraft
 prisma/seed.ts
 .continue/permissions.yml

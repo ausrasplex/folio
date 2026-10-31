@@ -96,6 +96,12 @@ npm test            # engine and statement-reading tests
 npm run e2e         # visits every screen in a browser (needs the app running and the demo data, plus Playwright)
 ```
 
+## Reaching Folio from outside your home
+
+Use a VPN, so Folio is never on the internet: [Tailscale](https://tailscale.com) (there is an Unraid plugin) or WireGuard (built into Unraid, under Settings › VPN Manager). Your phone or laptop then reaches Folio as if it were at home. Folio's privacy check (Settings › Server) shows a Tailscale address as "Your VPN".
+
+[docs/security/REMOTE-ACCESS.md](docs/security/REMOTE-ACCESS.md) walks through Tailscale and WireGuard, the other options if a VPN won't do, and a checklist to work through before Folio is ever reachable from the internet. For HTTPS on your home network, see [docs/security/HTTPS-AT-HOME.md](docs/security/HTTPS-AT-HOME.md).
+
 ## Good to know
 
 - There is no mail server, so changing your sign-in email asks for your password and changes it straight away.
