@@ -17,7 +17,8 @@ Decimal.set({ precision: 40, rounding: Decimal.ROUND_HALF_UP });
 
 export type SplitKind = 'VARIABLE' | 'FIXED';
 export type Frequency = 'WEEKLY' | 'FORTNIGHTLY' | 'MONTHLY';
-export type OffsetOrder = 'highestRate' | 'proRata';
+/** highestRate: fill the highest-rate split first; proRata: share by balance; listed: fill in the order the splits are given. */
+export type OffsetOrder = 'highestRate' | 'proRata' | 'listed';
 
 export interface RatePoint {
   from: Date;
@@ -91,7 +92,7 @@ export function allocateOffset(
     for (const s of eligible) out[s.id] = Decimal.min(balances[s.id], left.times(balances[s.id]).div(total));
     return out;
   }
-  const ordered = [...eligible].sort((a, b) => rateOn(b, day).cmp(rateOn(a, day)));
+  const ordered = order === 'listed' ? eligible : [...eligible].sort((a, b) => rateOn(b, day).cmp(rateOn(a, day)));
   for (const s of ordered) {
     const take = Decimal.min(left, balances[s.id]);
     out[s.id] = take;

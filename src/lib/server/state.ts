@@ -158,7 +158,7 @@ export async function buildState(u: CurrentUser) {
       next: sm.next ? sm.next.toISOString() : '', payoff: monY(sm.payoff), payoffIso: iso(sm.payoff), pEnd: sm.payoff ? yearFrac(sm.payoff) : yearFrac(now) + 40,
       start: yearFrac(l.startDate), startIso: iso(l.startDate), term: l.termYears, ahead: Math.round(sm.ahead), status, tone, series: sm.series, asAt: iso(sm.asAt),
       offset: offsetFor(l.id), offsetEst: !linkedOffset(l.id).length && (offsetEst.get(l.id) || []).length > 0, offsetHist: linkedOffset(l.id).length ? [] : offsetEst.get(l.id) || [], offsetAccounts: accounts.filter((a) => a.link === l.id).map((a) => a.id), totalInterest: Math.round(sm.totalInterest),
-      postingDay: sm.postingDay, postingDaySet: l.postingDay != null, offsetOrder: l.offsetOrder, redraw: l.redraw, accountNumber: dec(l.accountNumber), customerId: dec(l.customerId),
+      postingDay: sm.postingDay, postingDaySet: l.postingDay != null, offsetOrder: l.offsetOrder, offsetMode: sm.offsetMode, offsetSeq: sm.offsetSeq, redraw: l.redraw, accountNumber: dec(l.accountNumber), customerId: dec(l.customerId),
       archived, closedReason: l.closedReason || '', closedAt: iso(l.closedAt), dates: monY(l.startDate) + ' – ' + (l.closedAt ? monY(l.closedAt) : ''),
       lenderSnapshot: l.lenderSnapshot, brokerSnapshot: l.brokerSnapshot,
       splits: sm.splits.map((x, k) => ({

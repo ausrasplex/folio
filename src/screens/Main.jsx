@@ -123,14 +123,15 @@ class Screen extends DCBase {
     const d0 = (iso) => new Date(iso + 'T00:00:00Z');
     const yfD = (d) => d.getUTCFullYear() + (d.getUTCMonth() + (d.getUTCDate() - 1) / 31) / 12;
     const n = new Date(), today = Date.UTC(n.getFullYear(), n.getMonth(), n.getDate());
-    const splits = L ? L.splits.filter((x) => x.bal > 0).map((x) => ({ id: x.id, name: x.name, kind: x.kind === 'fixed' ? 'FIXED' : 'VARIABLE', fixedUntil: x.fixedUntil ? d0(x.fixedUntil) : null,
+    const seq = L ? L.offsetSeq || [] : [];
+    const splits = L ? L.splits.filter((x) => x.bal > 0).sort((a, b) => seq.indexOf(a.id) - seq.indexOf(b.id)).map((x) => ({ id: x.id, name: x.name, kind: x.kind === 'fixed' ? 'FIXED' : 'VARIABLE', fixedUntil: x.fixedUntil ? d0(x.fixedUntil) : null,
       balance: x.bal, rates: [{ from: new Date(0), rate: x.rate }], repayment: x.repay, frequency: FQ[x.freq] || 'MONTHLY', weekday: x.freq === 'monthly' ? undefined : x.repayDay })) : [];
     let out;
     if (!splits.length) out = { pts: [[T0, 0]], weeks: 0, interest: 0, end: T0 };
     else {
       const r = forecast({
         start: L.asAt ? d0(L.asAt) : new Date(today), splits, postingDay: L.postingDay || 1, offset, dayCount: ((this.data.lenders || []).find((x) => x.id === L.lenderId) || {}).dayCount || 365,
-        order: L.offsetOrder === 'proRata' ? 'proRata' : 'highestRate', maxYears: Math.max(5, (L.term || 30) + 10),
+        order: L.offsetMode || 'highestRate', maxYears: Math.max(5, (L.term || 30) + 10),
         extra, rateDelta: dr, frequency: freq ? FQ[freq] : undefined,
         lumpSum: lump[0] ? { date: new Date(today + lump[1] * 7 * DAYMS), amount: lump[0] } : undefined
       });
@@ -938,7 +939,11 @@ class Screen extends DCBase {
       sinceText: 'Actual since ' + new Date(L.startIso + 'T00:00:00Z').toLocaleDateString('en-AU', { month: 'short', year: 'numeric', timeZone: 'UTC' }) + ', then projected to payoff',
       effLabel: 'Effective rate · ' + headline + ' headline',
       rateLeg1: L.splits[0] ? L.splits[0].name + ' (' + L.splits[0].kind + ')' : '', rateLeg2: L.splits[1] ? L.splits[1].name + ' (' + L.splits[1].kind + ')' : '',
-      offsetNote: (() => { const fx = L.splits.filter((x) => x.kind === 'fixed'); if (!fx.length) return 'The offset reduces interest on every split, highest rate first.'; return fx.map((x) => x.name).join(' and ') + (fx.length > 1 ? ' get' : ' gets') + ' no offset until ' + (fx.length > 1 ? 'their fixed terms end' : 'its fixed term ends') + '. Then the offset pool spills across.'; })(),
+      offsetNote: (() => {
+        const nm = (id) => (L.splits.find((x) => x.id === id) || {}).name || '';
+        if (L.offsetMode === 'proRata') return 'The offset is shared across the splits in proportion to their balances.';
+        if (L.offsetMode === 'listed' && (L.offsetSeq || []).length > 1) return 'The offset covers ' + nm(L.offsetSeq[0]) + ' first' + (L.offsetOrder === 'manual' ? ', in the order you set' : ', as your statements show its offset benefit') + '. Anything above its balance, and the whole offset once it is paid off, goes to ' + L.offsetSeq.slice(1).map(nm).join(', then ') + '. A fixed split gets none until its fixed term ends.';
+        const fx = L.splits.filter((x) => x.kind === 'fixed'); if (!fx.length) return 'The offset reduces interest on every split, highest rate first.'; return fx.map((x) => x.name).join(' and ') + (fx.length > 1 ? ' get' : ' gets') + ' no offset until ' + (fx.length > 1 ? 'their fixed terms end' : 'its fixed term ends') + '. Then the offset pool spills across.'; })(),
       aheadLine: (() => { if (L.bal > expectedAt(H1) + 500) return 'You are ' + money(L.bal - expectedAt(H1)) + ' behind the original schedule'; let tm = H1; while (tm < H1 + 40 && expectedAt(tm) > L.bal) tm += 1 / 12; const mAhead = Math.round((tm - H1) * 12); if (mAhead <= 0) return "You're on schedule"; const y = Math.floor(mAhead / 12), mm = mAhead % 12; return "You're " + (y ? y + (y === 1 ? ' year' : ' years') + (mm ? ' ' + mm + (mm === 1 ? ' month' : ' months') : '') : mm + (mm === 1 ? ' month' : ' months')) + ' ahead of schedule!'; })(),
       effValue: effRate.toFixed(2) + '%',
       oNote: L.offsetEst ? 'The offset line is worked out from the interest offset benefit on each statement, as no offset account is linked: the average balance for each statement period, with the latest held for the projection. The projection keeps your current repayment and rates. The savings compare this with having no offset. Try other what-ifs on the Scenarios tab.' : "The projection keeps your current repayment and rates, and holds the linked offset account at today's balance. The savings compare this with having no offset. Try other what-ifs on the Scenarios tab.",

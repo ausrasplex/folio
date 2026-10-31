@@ -42,6 +42,19 @@ describe('offset allocation', () => {
     const after = allocateOffset(splits, bal, 80000, utcDay(2027, 3, 14));
     expect(after.f.toNumber()).toBe(50000); // leftover spills to the next eligible split
   });
+
+  it('fills splits in the given order when listed, spilling the rest to the next', () => {
+    // two $50,000 splits and a $60,000 offset: the first listed is covered, $10,000 spills to the other
+    const a = variable('a', 50000, 5.66), b = variable('b', 50000, 6.16);
+    const bal = { a: new Decimal(50000), b: new Decimal(50000) };
+    const listed = allocateOffset([a, b], bal, 60000, utcDay(2026, 10, 1), 'listed');
+    expect([listed.a.toNumber(), listed.b.toNumber()]).toEqual([50000, 10000]);
+    const byRate = allocateOffset([a, b], bal, 60000, utcDay(2026, 10, 1));
+    expect([byRate.a.toNumber(), byRate.b.toNumber()]).toEqual([10000, 50000]);
+    // once the first is paid off, the whole offset goes to the other
+    const later = allocateOffset([a, b], { a: new Decimal(0), b: new Decimal(50000) }, 60000, utcDay(2026, 10, 1), 'listed');
+    expect([later.a.toNumber(), later.b.toNumber()]).toEqual([0, 50000]);
+  });
 });
 
 describe('forecast', () => {

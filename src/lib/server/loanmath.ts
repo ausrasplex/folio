@@ -1,6 +1,6 @@
 // Turns stored loans into what the screens show: balances, next payment, payoff, schedule, projections.
 import Decimal from 'decimal.js';
-import { forecast, type ForecastSplit, type Frequency } from '../engine';
+import { forecast, type ForecastSplit, type Frequency, type OffsetOrder } from '../engine';
 
 export interface SplitRow {
   id: string;
@@ -19,7 +19,7 @@ export interface SplitRow {
   accountSuffix: string | null;
   rateChanges: { effectiveDate: Date; rate: Decimal.Value; confirmed: boolean; deletedAt: Date | null }[];
   repaymentChanges: { effectiveDate: Date; amount: Decimal.Value; frequency: Frequency; deletedAt: Date | null }[];
-  statements: { periodStart: Date; periodEnd: Date; closing: Decimal.Value; opening: Decimal.Value; interest: Decimal.Value; credits: Decimal.Value; rate: Decimal.Value | null; paymentsInAdvance: Decimal.Value | null; deletedAt: Date | null }[];
+  statements: { periodStart: Date; periodEnd: Date; closing: Decimal.Value; opening: Decimal.Value; interest: Decimal.Value; credits: Decimal.Value; rate: Decimal.Value | null; paymentsInAdvance: Decimal.Value | null; offsetBenefit?: Decimal.Value | null; deletedAt: Date | null }[];
 }
 
 export const DAY = 86400000;
@@ -89,6 +89,18 @@ export interface LoanSummaryInput {
 }
 
 /** Everything derived for one loan. Projection uses the engine (exact daily interest). */
+/** The order the offset fills a loan's splits in, from the loan's setting. 'auto' follows the statements: splits whose
+ *  statements show an offset benefit are filled first (the offset is linked to them), then the rest, highest rate first.
+ *  With no benefit on any statement yet, highest rate first. */
+export function offsetPlan(setting: string, splits: { id: string; rate: number; benefit: boolean }[]): { mode: OffsetOrder; seq: string[] } {
+  const ids = splits.map((s) => s.id);
+  if (setting === 'pro' || setting === 'proRata') return { mode: 'proRata', seq: ids };
+  if (setting === 'manual') return { mode: 'listed', seq: ids };
+  if (setting === 'high' || setting === 'highestRate' || !splits.some((s) => s.benefit)) return { mode: 'highestRate', seq: ids };
+  const byRate = (a: { rate: number }, b: { rate: number }) => b.rate - a.rate;
+  return { mode: 'listed', seq: [...splits.filter((s) => s.benefit).sort(byRate), ...splits.filter((s) => !s.benefit).sort(byRate)].map((s) => s.id) };
+}
+
 export function summarize(l: LoanSummaryInput) {
   const now = today0();
   const splits = l.splits.map((s) => {
@@ -105,8 +117,10 @@ export function summarize(l: LoanSummaryInput) {
     id: x.s.id, name: x.s.name, kind: x.s.kind, fixedUntil: x.s.fixedUntil, balance: x.bal,
     rates: [{ from: new Date(0), rate: x.rate }], repayment: x.repay, frequency: x.freq, weekday: x.freq === 'MONTHLY' ? undefined : x.s.repayDay
   }));
+  const plan = offsetPlan(l.offsetOrder, splits.map((x) => ({ id: x.s.id, rate: x.rate, benefit: x.s.statements.some((st) => !st.deletedAt && st.offsetBenefit != null && num(st.offsetBenefit) > 0) })));
+  fsplits.sort((a, b) => plan.seq.indexOf(a.id) - plan.seq.indexOf(b.id));
   const start = asAt.getTime() > 0 ? utc(asAt) : now;
-  const fc = fsplits.length ? forecast({ start, splits: fsplits, postingDay, offset: l.offsetBalance, dayCount: l.dayCount, order: l.offsetOrder === 'proRata' ? 'proRata' : 'highestRate', maxYears: Math.max(5, l.termYears + 10) }) : { points: [{ date: start, balance: 0, splits: {} }], payoffDate: start, totalInterest: new Decimal(0), splitPayoffs: {} as Record<string, Date> };
+  const fc = fsplits.length ? forecast({ start, splits: fsplits, postingDay, offset: l.offsetBalance, dayCount: l.dayCount, order: plan.mode, maxYears: Math.max(5, l.termYears + 10) }) : { points: [{ date: start, balance: 0, splits: {} }], payoffDate: start, totalInterest: new Decimal(0), splitPayoffs: {} as Record<string, Date> };
   const series = fc.points.map((p) => [Math.round(yearFrac(p.date) * 1000) / 1000, Math.round(p.balance)] as [number, number]);
   // each split's own projection; a split already at zero has none and is paid off as at its balance date
   const splitOut = splits.map((x) => {
@@ -120,7 +134,7 @@ export function summarize(l: LoanSummaryInput) {
   const perMonth = splits.reduce((t, x) => t + x.repay * PER[x.freq] / 12, 0);
   const nexts = splits.map((x) => nextPayment(x.freq, x.s.repayDay, x.s.anchorDate)).sort((a, b) => +a - +b);
   return {
-    splits: splitOut, bal, orig, asAt: start, postingDay, rate: weighted, expected, ahead: expected - bal, perMonth,
+    splits: splitOut, bal, orig, asAt: start, postingDay, offsetMode: plan.mode, offsetSeq: plan.seq, rate: weighted, expected, ahead: expected - bal, perMonth,
     next: nexts[0] || null, payoff: fc.payoffDate, totalInterest: fc.totalInterest.toNumber(), series
   };
 }
