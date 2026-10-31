@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation';
 import AuthCard from '@/components/AuthCard';
 import { db } from '@/lib/server/db';
-import { currentUser, endSession, requestIp } from '@/lib/server/auth';
+import { completeTwoStep, currentUser, endSession, requestIp } from '@/lib/server/auth';
 import { CODES_PER_SESSION, clearFailures, failuresSince, recordAttempt, totpKey } from '@/lib/server/ratelimit';
 import { checkTotp, useRecoveryCode } from '@/lib/server/twofactor';
 
@@ -23,7 +23,7 @@ async function verify(fd: FormData) {
     redirect('/twostep?e=1');
   }
   await clearFailures(key);
-  await db.session.update({ where: { id: u.sessionId }, data: { pending2fa: false } });
+  await completeTwoStep(u.id, u.sessionId);
   redirect('/');
 }
 

@@ -56,6 +56,13 @@ export async function endSession() {
   c.set(SECURE_COOKIE, '', { httpOnly: true, sameSite: 'lax', path: '/', maxAge: 0, secure: true });
 }
 
+/** Swaps the pending two-step session for a new, full one with a fresh token (so the token that was handed out before
+ *  the code was entered never becomes a signed-in session). */
+export async function completeTwoStep(userId: string, pendingSessionId: string) {
+  await db.session.deleteMany({ where: { id: pendingSessionId } });
+  await startSession(userId, false);
+}
+
 /** The signed-in person, or null. Pass allowPending for the two-step code page. */
 export async function currentUser(allowPending = false) {
   // only the cookie for this request's mode counts, so a plain-HTTP cookie cannot be slipped into an HTTPS session
@@ -64,7 +71,8 @@ export async function currentUser(allowPending = false) {
   const s = await db.session.findUnique({ where: { id: sha256(t) }, include: { user: true } });
   if (!s) return null;
   if (s.pending2fa && !allowPending) return null;
-  if (Date.now() - s.lastSeen.getTime() > DAYS * 86400000) { await db.session.delete({ where: { id: s.id } }); return null; }
+  // ends after 30 days without use, and after 30 days in all however much it is used
+  if (Date.now() - s.lastSeen.getTime() > DAYS * 86400000 || Date.now() - s.createdAt.getTime() > DAYS * 86400000) { await db.session.deleteMany({ where: { id: s.id } }); return null; }
   if (Date.now() - s.lastSeen.getTime() > 3600000) await db.session.update({ where: { id: s.id }, data: { lastSeen: new Date() } });
   return { ...s.user, sessionId: s.id, pending2fa: s.pending2fa };
 }

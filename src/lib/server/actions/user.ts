@@ -73,7 +73,8 @@ export const userActions: Record<string, Action> = {
     need(nw !== p.cur, 'Choose a password you have not used here.');
     await db.user.update({ where: { id: u.id }, data: { passwordHash: await hashPassword(nw) } });
     await mergePrefs(u.id, { pwChanged: new Date().toISOString() });
-    if (p.others) await db.session.deleteMany({ where: { userId: u.id, id: { not: u.sessionId } } });
+    // a new password signs out every other device, so a password that leaked stops working everywhere at once
+    await db.session.deleteMany({ where: { userId: u.id, id: { not: u.sessionId } } });
   },
   tfaStart: async ({ u }) => {
     need(!u.totpOn, 'Two-step verification is already on.');
