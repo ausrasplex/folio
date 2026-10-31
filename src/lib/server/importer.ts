@@ -61,6 +61,14 @@ export const UNREADABLE = 'This file could not be read.';
 // The worker's code is a string (eval) so it never has to be found on disk after the server is bundled.
 const PDF_WORKER = `
 const { parentPort, workerData } = require('worker_threads');
+// pdf.js loads the native @napi-rs/canvas add-on in Node, only for drawing pages. Reading text does not need it, and a
+// native add-on in a worker thread can crash the whole process when the thread stops, so it is never loaded here.
+const Module = require('module');
+const load = Module._load;
+Module._load = function (request, ...rest) {
+  if (request === '@napi-rs/canvas' || request.startsWith('@napi-rs/canvas-')) throw new Error('not used when reading text');
+  return load.call(this, request, ...rest);
+};
 (async () => {
   try {
     const pdfjs = await import(workerData.pdfjs);
