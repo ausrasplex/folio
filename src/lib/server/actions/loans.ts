@@ -147,6 +147,19 @@ export const loanActions: Record<string, Action> = {
     await db.rateChange.update({ where: { id: rc!.id }, data: { confirmed: true } });
   },
 
+  /** Confirms several rate changes at once (Confirm All on the Changes card). Only changes on your loans are touched. */
+  confirmRates: async (c) => {
+    const ids = (Array.isArray(c.p.ids) ? c.p.ids : []).map(String).slice(0, 500);
+    need(ids.length, 'Choose the rate changes to confirm.');
+    const mine = { id: { in: ids }, deletedAt: null, confirmed: false, split: { loan: { householdId: hh(c), borrowers: { some: { userId: c.u.id } } } } };
+    // first drop the ones that only repeat the rate already in effect, then confirm the rest
+    const splitIds = [...new Set((await db.rateChange.findMany({ where: mine, select: { splitId: true } })).map((x) => x.splitId))];
+    let removed = 0;
+    for (const id of splitIds) removed += await tidyRateRepeats(id);
+    const r = await db.rateChange.updateMany({ where: mine, data: { confirmed: true } });
+    return { count: r.count, removed };
+  },
+
   /** Takes a split's starting rate from its first statement. The rate typed in when the loan was added is kept as a
    *  confirmed change on the day it was added, since it was the rate then. */
   useStartRate: async (c) => {

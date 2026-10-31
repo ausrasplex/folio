@@ -4,7 +4,7 @@ import { db } from './db';
 import { dec } from './crypto';
 import { categorize } from './state';
 import { chargeDay, engineInterest, matchFile, type Read } from './importer';
-import { rateInEffect } from './rates';
+import { rateInEffect, tidyRateRepeats } from './rates';
 
 export { rateInEffect };
 
@@ -133,6 +133,8 @@ export async function saveImport(o: { fileId: string; destId: string; userId: st
     const lines = (read.txns.filter((t) => t.rate != null) as (typeof read.txns[number] & { rate: number })[]).sort((a, b) => (a.date < b.date ? -1 : 1));
     for (const t of lines) await add(new Date(t.date + 'T00:00:00Z'), t.rate);
     if (!lines.length && read.rate != null) await add(end, read.rate);
+    // statements imported out of date order leave later changes repeating an earlier one
+    await tidyRateRepeats(dest.id);
   }
   await db.storedFile.update({ where: { id: file.id }, data: { pending: Prisma.DbNull } });
   return { statementId: st.id, status, note, skipped: read.txns.length - fresh.length };
