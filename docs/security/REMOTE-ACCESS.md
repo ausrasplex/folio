@@ -159,3 +159,18 @@ FOLIO_REQUIRE_PROXY_AUTH="true"
 - `FOLIO_REQUIRE_PROXY_AUTH` turns the check on. Requests from your home network or VPN still get in without the login.
 
 Restart Folio. Check it: from outside your home (for example on your phone with Wi-Fi off), `https://folio.yourdomain.com` shows the Authelia login first. Folio's own sign-in still follows.
+
+## Before You Expose Folio
+
+Work through every item before Folio can be reached from the internet in any way other than a VPN (Cloudflare Tunnel, or port 443 to a proxy). Tick each one only once you have checked it.
+
+- [ ] **Folio is up to date** with the security changes: sign-in and two-step limits, trusted client addresses, HTTPS-only cookies, session limits, one password rule, required two-step (A1 to A7); security headers, request origin checks, invites kept to the home network, size limits (B1 to B4); and statement files read in a limited worker and checked by content (C1, C2). They are all in this version.
+- [ ] **`FOLIO_URL` is set to the https address** people use, for example `https://folio.yourdomain.com`. This makes the sign-in cookie HTTPS-only and turns on HSTS.
+- [ ] **`FOLIO_TRUST_PROXY=true`**, and Folio can only be reached through the proxy or tunnel ([HTTPS at Home, Step 6](HTTPS-AT-HOME.md#step-6-close-the-side-door)). Check: Profile › Security shows each device's own address, not the proxy's.
+- [ ] **Two-step verification is required** for everyone: Settings › Server › Require two-step verification for everyone. Turn it on for your own account first, in Profile.
+- [ ] **A backup is made and a restore is tested**: Settings › Server › Back up now, then restore that file on a spare Folio (same `FOLIO_SECRET`) and check your loans and accounts are there.
+- [ ] **`npm run audit` is clean**, or each finding is noted with why it doesn't matter here.
+- [ ] **A front-door login is in place**: Cloudflare Access with `FOLIO_CF_ACCESS_TEAM` and `FOLIO_CF_ACCESS_AUD` set, or Authelia with `FOLIO_REQUIRE_PROXY_AUTH=true` (sections above). Check from outside your home (a phone with Wi-Fi off): the front-door login appears before Folio's own.
+- [ ] **Port forwarding goes only to the proxy** (443 to NPM), or there is none at all (Cloudflare Tunnel). Never forward Folio's port (3000) or Postgres (5432). Check your router's port forwarding list.
+
+Keep it up: update Folio, NPM, Authelia or cloudflared, and Unraid when updates come out, and look at Profile › Security now and then for devices you don't recognise.
