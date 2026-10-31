@@ -64,7 +64,7 @@ const { parentPort, workerData } = require('worker_threads');
 (async () => {
   try {
     const pdfjs = await import(workerData.pdfjs);
-    const doc = await pdfjs.getDocument({ data: workerData.data, disableFontFace: true, isEvalSupported: false, useSystemFonts: false, standardFontDataUrl: workerData.fonts }).promise;
+    const doc = await pdfjs.getDocument({ data: workerData.data, disableFontFace: true, isEvalSupported: false, useSystemFonts: false, standardFontDataUrl: workerData.fonts, verbosity: 0 }).promise;
     const pages = [];
     const last = Math.min(doc.numPages, workerData.maxPages);
     for (let n = 1; n <= last; n++) {
@@ -95,16 +95,19 @@ export function pdfPages(buf: Buffer, opts: { timeoutMs?: number; maxPages?: num
     let settled = false;
     const w = new Worker(PDF_WORKER, {
       eval: true,
+      execArgv: [], // a plain thread: none of the host process's flags or loaders
       workerData: { data: new Uint8Array(buf), pdfjs: pathToFileURL(nodePath.join(modules, 'legacy', 'build', 'pdf.mjs')).href, fonts: nodePath.join(modules, 'standard_fonts') + nodePath.sep, maxPages: opts.maxPages ?? PDF_MAX_PAGES },
       resourceLimits: { maxOldGenerationSizeMb: PDF_MEMORY_MB }
     });
+    // settles only once the worker has stopped, so no reader thread outlives the request
     const finish = (pages: Page[] | null, why?: string) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      w.terminate().catch(() => {});
-      if (pages) resolve(pages);
-      else { if (why) console.warn('[folio] PDF not read:', why); reject(new Error(UNREADABLE)); }
+      w.terminate().catch(() => {}).finally(() => {
+        if (pages) resolve(pages);
+        else { if (why) console.warn('[folio] PDF not read:', why); reject(new Error(UNREADABLE)); }
+      });
     };
     const timer = setTimeout(() => finish(null, 'took longer than ' + (opts.timeoutMs ?? PDF_TIMEOUT_MS) / 1000 + ' seconds'), opts.timeoutMs ?? PDF_TIMEOUT_MS);
     w.once('message', (m: { pages?: Page[]; error?: string }) => finish(m.pages || null, m.error));
