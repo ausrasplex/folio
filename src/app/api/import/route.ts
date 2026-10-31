@@ -1,7 +1,7 @@
 import { crossSiteBlock } from '@/lib/server/origin';
 import { currentMembership, currentUser, twoStepBlock } from '@/lib/server/auth';
 import { db } from '@/lib/server/db';
-import { matchFile } from '@/lib/server/importer';
+import { matchFile, UNREADABLE } from '@/lib/server/importer';
 import { guessDest, saveImport } from '@/lib/server/imports';
 import { IMPORT_MAX, readForm, tooLarge } from '@/lib/server/limits';
 import { attemptsSince, importKey, IMPORTS_PER_MINUTE, recordAttempt } from '@/lib/server/ratelimit';
@@ -32,7 +32,7 @@ export async function POST(req: Request) {
   const stored = await db.storedFile.create({ data: { name: f.name.slice(0, 200), mime: f.type || (/\.csv$/i.test(f.name) ? 'text/csv' : 'application/pdf'), size: f.size, data: buf, pending: { householdId: m.householdId, userId: u.id, dest } } });
   let match;
   try { match = await matchFile(buf, f.name, stored.mime); } catch (e) {
-    return Response.json({ fileId: stored.id, name: f.name, error: 'This file could not be read. ' + (e instanceof Error ? e.message : ''), layout: null });
+    return Response.json({ fileId: stored.id, name: f.name, error: e instanceof Error && e.message === UNREADABLE ? UNREADABLE : UNREADABLE + ' ' + (e instanceof Error ? e.message : ''), layout: null });
   }
   // most but not all of the checks passed with this layout: it probably needs re-mapping (this raises the alert)
   if ('remap' in match && match.remap) {

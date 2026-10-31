@@ -27,6 +27,8 @@ const nextConfig: NextConfig = {
   // the Docker image (for Unraid) builds a standalone server; a plain `npm run build && npm start` does not need it
   output: process.env.FOLIO_STANDALONE ? 'standalone' : undefined,
   serverExternalPackages: ['pdfjs-dist', '@prisma/client', 'bcryptjs'],
+  // statements are read by pdf.js in a worker thread that loads it by path, so the standalone build must copy it in
+  outputFileTracingIncludes: { '/**': ['./node_modules/pdfjs-dist/legacy/build/**', './node_modules/pdfjs-dist/standard_fonts/**'] },
   experimental: { serverActions: { bodySizeLimit: '30mb' } },
   async headers() { return [{ source: '/:path*', headers: securityHeaders }]; }
 };

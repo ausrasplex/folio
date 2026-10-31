@@ -1,6 +1,8 @@
 // Reads statement files on this server. PDFs: text with positions (pdf.js), then the saved layout's boxes say
-import nodePath from 'path';
 // which text is which. CSVs: the header row picks the layout, the layout says what each column holds.
+import nodePath from 'path';
+import { pathToFileURL } from 'url';
+import { Worker } from 'worker_threads';
 import Decimal from 'decimal.js';
 import { db } from './db';
 import { runDaily } from '../engine';
@@ -50,26 +52,65 @@ export function moneyIn(t: string): number | null {
 }
 export const rateIn = (t: string) => { const m = String(t).match(/(\d{1,2}\.\d{1,4})\s*%/); return m ? Number(m[1]) : null; };
 
-export async function pdfPages(buf: Buffer): Promise<Page[]> {
-  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
-  const doc = await pdfjs.getDocument({ data: new Uint8Array(buf), disableFontFace: true, isEvalSupported: false, useSystemFonts: false, standardFontDataUrl: nodePath.join(process.cwd(), 'node_modules/pdfjs-dist/standard_fonts') + '/' }).promise;
-  const pages: Page[] = [];
-  for (let n = 1; n <= doc.numPages; n++) {
-    const p = await doc.getPage(n);
-    const vp = p.getViewport({ scale: 1 });
-    const tc = await p.getTextContent();
-    const items: Item[] = [];
-    for (const it of tc.items as { str: string; transform: number[]; width: number; height: number }[]) {
-      if (!it.str || !it.str.trim()) continue;
-      const [, , , dd, e, f] = it.transform;
-      const h = Math.abs(it.height || dd || 10);
-      items.push({ s: it.str, x: e / vp.width * 100, y: (vp.height - f - h * 0.8) / vp.height * 100, w: (it.width || 0) / vp.width * 100, h: h / vp.height * 100, page: n });
+// ----- PDF text, read in a separate thread with limits, so a broken or hostile file cannot stall or crash the server
+export const PDF_MAX_PAGES = 50;
+export const PDF_TIMEOUT_MS = 20000;
+export const PDF_MEMORY_MB = 256;
+export const UNREADABLE = 'This file could not be read.';
+
+// The worker's code is a string (eval) so it never has to be found on disk after the server is bundled.
+const PDF_WORKER = `
+const { parentPort, workerData } = require('worker_threads');
+(async () => {
+  try {
+    const pdfjs = await import(workerData.pdfjs);
+    const doc = await pdfjs.getDocument({ data: workerData.data, disableFontFace: true, isEvalSupported: false, useSystemFonts: false, standardFontDataUrl: workerData.fonts }).promise;
+    const pages = [];
+    const last = Math.min(doc.numPages, workerData.maxPages);
+    for (let n = 1; n <= last; n++) {
+      const p = await doc.getPage(n);
+      const vp = p.getViewport({ scale: 1 });
+      const tc = await p.getTextContent();
+      const items = [];
+      for (const it of tc.items) {
+        if (!it.str || !it.str.trim()) continue;
+        const dd = it.transform[3], e = it.transform[4], f = it.transform[5];
+        const h = Math.abs(it.height || dd || 10);
+        items.push({ s: it.str, x: e / vp.width * 100, y: (vp.height - f - h * 0.8) / vp.height * 100, w: (it.width || 0) / vp.width * 100, h: h / vp.height * 100, page: n });
+      }
+      items.sort((a, b) => a.y - b.y || a.x - b.x);
+      pages.push({ n, items, text: items.map((i) => i.s).join(' '), wPt: vp.width, hPt: vp.height });
     }
-    items.sort((a, b) => a.y - b.y || a.x - b.x);
-    pages.push({ n, items, text: items.map((i) => i.s).join(' '), wPt: vp.width, hPt: vp.height });
-  }
-  await doc.destroy();
-  return pages;
+    await doc.destroy();
+    parentPort.postMessage({ pages });
+  } catch (e) { parentPort.postMessage({ error: String((e && e.message) || e) }); }
+})();
+`;
+
+/** The text of a PDF's pages (the first 50 at most). Read in a worker thread with a 20-second limit and a memory cap:
+ *  a timeout, crash or unreadable file rejects with "This file could not be read." and the server keeps running. */
+export function pdfPages(buf: Buffer, opts: { timeoutMs?: number; maxPages?: number } = {}): Promise<Page[]> {
+  const modules = nodePath.join(process.cwd(), 'node_modules', 'pdfjs-dist');
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const w = new Worker(PDF_WORKER, {
+      eval: true,
+      workerData: { data: new Uint8Array(buf), pdfjs: pathToFileURL(nodePath.join(modules, 'legacy', 'build', 'pdf.mjs')).href, fonts: nodePath.join(modules, 'standard_fonts') + nodePath.sep, maxPages: opts.maxPages ?? PDF_MAX_PAGES },
+      resourceLimits: { maxOldGenerationSizeMb: PDF_MEMORY_MB }
+    });
+    const finish = (pages: Page[] | null, why?: string) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      w.terminate().catch(() => {});
+      if (pages) resolve(pages);
+      else { if (why) console.warn('[folio] PDF not read:', why); reject(new Error(UNREADABLE)); }
+    };
+    const timer = setTimeout(() => finish(null, 'took longer than ' + (opts.timeoutMs ?? PDF_TIMEOUT_MS) / 1000 + ' seconds'), opts.timeoutMs ?? PDF_TIMEOUT_MS);
+    w.once('message', (m: { pages?: Page[]; error?: string }) => finish(m.pages || null, m.error));
+    w.once('error', (e) => finish(null, e.message));
+    w.once('exit', (code) => finish(null, 'the reader stopped (code ' + code + ')'));
+  });
 }
 
 const inBox = (it: Item, b: number[]) => { const cx = it.x + it.w / 2, cy = it.y + it.h / 2; return cx >= b[0] && cx <= b[0] + b[2] && cy >= b[1] && cy <= b[1] + b[3]; };

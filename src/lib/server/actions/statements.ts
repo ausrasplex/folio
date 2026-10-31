@@ -1,6 +1,6 @@
-import { type Action, type Ctx, db, hh, need, str } from '../actions';
+import { type Action, type Ctx, db, Fail, hh, need, str } from '../actions';
 import { saveImport } from '../imports';
-import { matchFile } from '../importer';
+import { matchFile, UNREADABLE } from '../importer';
 
 /** A statement on a loan or account you can see. */
 async function myStatement(c: Ctx, id: unknown, deleted = false) {
@@ -26,7 +26,7 @@ export const statementActions: Record<string, Action> = {
     need(f && pend && pend.householdId === hh(c), 'That file is not waiting to be imported.');
     const versionId = str(c.p.versionId) || null;
     await db.storedFile.update({ where: { id: f!.id }, data: { pending: { ...pend, versionId } } });
-    const m = await matchFile(Buffer.from(f!.data), f!.name, f!.mime, versionId);
+    const m = await matchFile(Buffer.from(f!.data), f!.name, f!.mime, versionId).catch(() => { throw new Fail(UNREADABLE); });
     return {
       layout: m.layout ? { id: m.layout.id, name: m.layout.name, lenderName: m.layout.lenderName, kind: m.layout.kind, version: m.version!.version, versionId: m.version!.id } : null,
       read: m.read, forced: !!versionId

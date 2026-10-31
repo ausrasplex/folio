@@ -1,6 +1,6 @@
 // Statement layouts: shared by everyone on the server. Each save makes a new version; statements keep the version that read them.
-import { type Action, type Ctx, canEdit, db, hh, need, str } from '../actions';
-import { headerKey, parseCsv, pdfPages, pdfPhrases, readCsv, readPdf, type CsvMap, type PdfMap } from '../importer';
+import { type Action, type Ctx, canEdit, db, Fail, hh, need, str } from '../actions';
+import { headerKey, parseCsv, pdfPages, pdfPhrases, readCsv, readPdf, UNREADABLE, type CsvMap, type PdfMap } from '../importer';
 import { myFile } from '../visible';
 
 const KINDS = ['loan', 'account'];
@@ -13,7 +13,8 @@ async function sampleRead(c: Ctx, fileId: string, kind: string, format: string, 
     const rows = parseCsv(buf.toString('utf8').replace(/^﻿/, ''));
     return { read: readCsv(rows, { ...(map as unknown as CsvMap), header: rows[0] || [] }, kind), header: rows[0] || [] };
   }
-  return { read: readPdf(await pdfPages(buf), map as unknown as PdfMap, kind), header: null };
+  const pages = await pdfPages(buf).catch(() => { throw new Fail(UNREADABLE); });
+  return { read: readPdf(pages, map as unknown as PdfMap, kind), header: null };
 }
 const cleanMap = (format: string, m: Record<string, unknown>) => {
   if (format === 'CSV') return { cols: Array.isArray(m.cols) ? (m.cols as unknown[]).map((x) => (x ? String(x) : 'ignore')) : [], dateFmt: ['dmy', 'mdy', 'ymd'].includes(String(m.dateFmt)) ? String(m.dateFmt) : 'dmy', header: Array.isArray(m.header) ? (m.header as unknown[]).map(String) : [] };
