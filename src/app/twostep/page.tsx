@@ -3,6 +3,7 @@ import AuthCard from '@/components/AuthCard';
 import { db } from '@/lib/server/db';
 import { completeTwoStep, currentUser, endSession, requestIp } from '@/lib/server/auth';
 import { CODES_PER_SESSION, clearFailures, failuresSince, recordAttempt, totpKey } from '@/lib/server/ratelimit';
+import { logEvent } from '@/lib/server/security';
 import { checkTotp, useRecoveryCode } from '@/lib/server/twofactor';
 
 export const dynamic = 'force-dynamic';
@@ -18,12 +19,14 @@ async function verify(fd: FormData) {
   if (!ok) {
     // five wrong codes end this sign-in: the person has to start again with their password
     await recordAttempt(key, false, await requestIp());
+    await logEvent('code_failed', { userId: u.id });
     const s = await db.session.findUnique({ where: { id: u.sessionId } });
-    if (!s || (await failuresSince(key, s.createdAt)) >= CODES_PER_SESSION) { await endSession(); redirect('/signin?e=codes'); }
+    if (!s || (await failuresSince(key, s.createdAt)) >= CODES_PER_SESSION) { await logEvent('codes_locked', { userId: u.id }); await endSession(); redirect('/signin?e=codes'); }
     redirect('/twostep?e=1');
   }
   await clearFailures(key);
   await completeTwoStep(u.id, u.sessionId);
+  await logEvent('signin', { userId: u.id, detail: { twoStep: true } });
   redirect('/');
 }
 

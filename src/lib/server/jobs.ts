@@ -2,6 +2,7 @@ import { db } from './db';
 import { backupSettings, makeBackup } from './backup';
 import { notifyUser } from './notify';
 import { pruneAttempts } from './ratelimit';
+import { logEvent, pruneEvents } from './security';
 import { buildState } from './state';
 
 const g = globalThis as unknown as { folioJobs?: boolean };
@@ -15,7 +16,7 @@ async function backupIfDue() {
   if (now < slot) slot.setDate(slot.getDate() - 1);
   if (s.freq === 'weekly') while (slot.getDay() !== 0) slot.setDate(slot.getDate() - 1);
   const last = await db.backup.findFirst({ where: { auto: true }, orderBy: { createdAt: 'desc' } });
-  if (!last || last.createdAt < slot) await makeBackup(true);
+  if (!last || last.createdAt < slot) { const b = await makeBackup(true); await logEvent('backup', { ip: null, detail: { auto: true, name: b.fileName } }); }
 }
 
 /** New alerts go out once to each person's connected services. */
@@ -41,6 +42,7 @@ export function startJobs() {
     try { await backupIfDue(); } catch (e) { console.error('[folio] backup failed', e); }
     try { await sendAlerts(); } catch (e) { console.error('[folio] alerts failed', e); }
     try { await pruneAttempts(); } catch (e) { console.error('[folio] pruning sign-in attempts failed', e); }
+    try { await pruneEvents(); } catch (e) { console.error('[folio] pruning the security log failed', e); }
   };
   setTimeout(tick, 60000);
   setInterval(tick, 15 * 60000);

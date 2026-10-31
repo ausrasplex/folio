@@ -7,7 +7,7 @@ import { db } from './db';
 
 export const APP_VERSION = '1.0.0';
 // parents before children, so a restore can insert in this order
-const ORDER = ['User', 'Household', 'Membership', 'Invite', 'Lender', 'Broker', 'Loan', 'LoanBorrower', 'LoanSplit', 'RateChange', 'RepaymentChange', 'LoanEvent', 'Scenario', 'Account', 'AccountHolder', 'Layout', 'LayoutVersion', 'StoredFile', 'Statement', 'Txn', 'Channel', 'ServerSetting'] as const;
+const ORDER = ['User', 'Household', 'Membership', 'Invite', 'Lender', 'Broker', 'Loan', 'LoanBorrower', 'LoanSplit', 'RateChange', 'RepaymentChange', 'LoanEvent', 'Scenario', 'Account', 'AccountHolder', 'Layout', 'LayoutVersion', 'StoredFile', 'Statement', 'Txn', 'Channel', 'ServerSetting', 'SecurityEvent'] as const;
 type Delegate = { findMany: (a?: unknown) => Promise<Record<string, unknown>[]>; createMany: (a: unknown) => Promise<unknown>; deleteMany: (a?: unknown) => Promise<unknown> };
 const del = (name: string) => (db as unknown as Record<string, Delegate>)[name.charAt(0).toLowerCase() + name.slice(1)];
 const fieldsOf = (name: string) => Prisma.dmmf.datamodel.models.find((m) => m.name === name)!.fields.filter((f) => f.kind === 'scalar' || f.kind === 'enum');

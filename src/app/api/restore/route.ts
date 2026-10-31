@@ -2,6 +2,7 @@ import { crossSiteBlock } from '@/lib/server/origin';
 import { currentUser, twoStepBlock } from '@/lib/server/auth';
 import { readBackup, restoreBackup } from '@/lib/server/backup';
 import { MB, readForm, restoreMax, tooLarge } from '@/lib/server/limits';
+import { logEvent } from '@/lib/server/security';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 600;
@@ -24,6 +25,8 @@ export async function POST(req: Request) {
       return Response.json({ name: f.name, made: b.made, appVersion: b.appVersion, households: c.Household || 0, people: c.User || 0, loans: (c.Loan || 0) + (c.Account || 0), statements: c.Statement || 0, size: buf.length });
     }
     await restoreBackup(buf);
+    // logged after the restore, so it is in the restored log rather than wiped with the old one
+    await logEvent('restore', { userId: u.id, detail: { name: f.name } });
     return Response.json({ restored: true });
   } catch (e) {
     return Response.json({ error: e instanceof Error ? e.message : 'The restore did not work.' }, { status: 400 });

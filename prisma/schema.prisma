@@ -74,6 +74,21 @@ model LoginAttempt {
   @@index([key, at])
 }
 
+/// The security log: sign-ins, failed sign-ins, lockouts, two-step on and off, password and email changes, devices
+/// signed out, backups, restores and settings changes. Kept 180 days. userId is kept (not linked) so a removed
+/// member's history stays in the server's log; it is empty for a failed sign-in to an email with no account.
+model SecurityEvent {
+  id     String   @id @default(cuid())
+  userId String?
+  kind   String
+  ip     String?
+  at     DateTime @default(now())
+  detail Json     @default("{}")
+
+  @@index([userId, at])
+  @@index([at])
+}
+
 model Household {
   id          String       @id @default(cuid())
   name        String

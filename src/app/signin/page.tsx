@@ -3,6 +3,7 @@ import AuthCard from '@/components/AuthCard';
 import { db } from '@/lib/server/db';
 import { currentUser, passwordMatches, requestIp, startSession } from '@/lib/server/auth';
 import { noMatchText, passwordLimit, passwordResult } from '@/lib/server/ratelimit';
+import { logEvent, logWrongPassword } from '@/lib/server/security';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,8 +18,10 @@ async function signIn(fd: FormData) {
   const u = await db.user.findUnique({ where: { email } });
   const ok = await passwordMatches(u, pw);
   await passwordResult(email, ip, ok);
-  if (!ok || !u) redirect('/signin?e=1');
+  if (!ok || !u) { await logWrongPassword(email, u?.id ?? null, ip); redirect('/signin?e=1'); }
   await startSession(u.id, u.totpOn);
+  // with two-step on, signing in finishes on the code page, which logs it
+  if (!u.totpOn) await logEvent('signin', { userId: u.id, ip });
   redirect(u.totpOn ? '/twostep' : '/');
 }
 

@@ -1,6 +1,7 @@
 import { type Action, db, need, str } from '../actions';
 import { checkPassword, hashPassword, PASSWORD_RULE, passwordProblem, requestIp } from '../auth';
 import { clearFailures, emailLimit, failures, passwordLimit, passwordResult, recordAttempt, totpKey, waitText } from '../ratelimit';
+import { logEvent } from '../security';
 import { enc, sha256 } from '../crypto';
 import { makeRecoveryCodes, newSecret, otpUri, useRecoveryCode, useTotp } from '../twofactor';
 
@@ -8,12 +9,13 @@ const img = (v: unknown) => { const s = String(v ?? ''); if (!s) return null; ne
 const freshCodes = async (userId: string) => { const codes = makeRecoveryCodes(); await db.user.update({ where: { id: userId }, data: { recoveryCodes: codes.map((c) => sha256(c.toUpperCase())) } }); return codes; };
 
 /** Checks your own password, under the same limit as signing in (a stolen session cannot guess it freely). */
-const ownPassword = async (u: { email: string; passwordHash: string }, pw: unknown, wrong: string) => {
+const ownPassword = async (u: { id: string; email: string; passwordHash: string }, pw: unknown, wrong: string) => {
   const ip = await requestIp();
   const lim = await passwordLimit(u.email, ip);
   need(lim.ok, 'Too many wrong passwords. ' + (lim.ok ? '' : waitText(lim.waitMs)));
   const ok = await checkPassword(String(pw || ''), u.passwordHash);
   await passwordResult(u.email, ip, ok);
+  if (!ok) await logEvent('password_wrong', { userId: u.id, ip });
   need(ok, wrong);
 };
 
@@ -25,7 +27,7 @@ const ownCode = async (u: { id: string }, code: string, wrong: string, opts: { s
   const lim = emailLimit(await failures(key, now), now);
   need(lim.ok, 'Too many wrong codes. ' + (lim.ok ? '' : waitText(lim.waitMs)));
   const ok = (await useTotp(u.id, code, { setup: opts.setup })) || (!!opts.recovery && (await useRecoveryCode(u.id, code)));
-  if (ok) await clearFailures(key); else await recordAttempt(key, false, await requestIp());
+  if (ok) await clearFailures(key); else { await recordAttempt(key, false, await requestIp()); await logEvent('code_failed', { userId: u.id }); }
   need(ok, wrong);
 };
 
@@ -67,6 +69,7 @@ export const userActions: Record<string, Action> = {
     await ownPassword(u, p.password, 'That password is not right.');
     need(!(await db.user.count({ where: { email, id: { not: u.id } } })), 'Another account on this server uses that email.');
     await db.user.update({ where: { id: u.id }, data: { email, pendingEmail: null, emailToken: null } });
+    await logEvent('email_changed', { userId: u.id, detail: { from: u.email, to: email } });
   },
   changePassword: async ({ u, p }) => {
     await ownPassword(u, p.cur, 'Your current password is not right.');
@@ -76,7 +79,8 @@ export const userActions: Record<string, Action> = {
     await db.user.update({ where: { id: u.id }, data: { passwordHash: await hashPassword(nw) } });
     await mergePrefs(u.id, { pwChanged: new Date().toISOString() });
     // a new password signs out every other device, so a password that leaked stops working everywhere at once
-    await db.session.deleteMany({ where: { userId: u.id, id: { not: u.sessionId } } });
+    const out = await db.session.deleteMany({ where: { userId: u.id, id: { not: u.sessionId } } });
+    await logEvent('password_changed', { userId: u.id, detail: { signedOut: out.count } });
   },
   tfaStart: async ({ u }) => {
     need(!u.totpOn, 'Two-step verification is already on.');
@@ -89,25 +93,33 @@ export const userActions: Record<string, Action> = {
     need(fresh?.totpSecret, 'Start the set-up again.');
     await ownCode(u, str(p.code).replace(/\s/g, ''), 'That code did not match. Check the time on your phone and try the newest code.', { setup: true });
     await db.user.update({ where: { id: u.id }, data: { totpOn: true } });
+    await logEvent('twostep_on', { userId: u.id });
     await mergePrefs(u.id, { tfaOn: new Date().toISOString() });
     return { codes: await freshCodes(u.id) };
   },
   tfaCodes: async ({ u, p }) => {
     need(u.totpOn && u.totpSecret, 'Two-step verification is off.');
     await ownCode(u, str(p.code).replace(/\s/g, ''), 'That code did not match. Enter the newest code from your app.');
-    return { codes: await freshCodes(u.id) };
+    const codes = await freshCodes(u.id);
+    await logEvent('recovery_codes', { userId: u.id });
+    return { codes };
   },
   tfaOff: async ({ u, p }) => {
     need(u.totpOn && u.totpSecret, 'Two-step verification is already off.');
     const code = str(p.code).replace(/\s/g, '');
     await ownCode(u, code, 'That code did not match. Enter the newest code from your app, or a recovery code.', { recovery: true });
     await db.user.update({ where: { id: u.id }, data: { totpOn: false, totpSecret: null, recoveryCodes: [] } });
+    await logEvent('twostep_off', { userId: u.id });
   },
   signOutSession: async ({ u, p }) => {
     need(str(p.id) !== u.sessionId, 'Use Log out to sign out of this device.');
-    await db.session.deleteMany({ where: { userId: u.id, id: str(p.id) } });
+    const out = await db.session.deleteMany({ where: { userId: u.id, id: str(p.id) } });
+    if (out.count) await logEvent('signed_out_device', { userId: u.id });
   },
-  signOutOthers: async ({ u }) => { await db.session.deleteMany({ where: { userId: u.id, id: { not: u.sessionId } } }); },
+  signOutOthers: async ({ u }) => {
+    const out = await db.session.deleteMany({ where: { userId: u.id, id: { not: u.sessionId } } });
+    await logEvent('signed_out_others', { userId: u.id, detail: { count: out.count } });
+  },
   leaveHousehold: async ({ u, p }) => {
     const m = await db.membership.findFirst({ where: { userId: u.id, householdId: str(p.id), removedAt: null } });
     need(m, 'You are not in that household.');

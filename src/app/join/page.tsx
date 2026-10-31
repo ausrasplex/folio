@@ -4,6 +4,7 @@ import { db } from '@/lib/server/db';
 import { currentUser, hashPassword, PASSWORD_RULE, passwordMatches, passwordProblem, requestIp, startSession } from '@/lib/server/auth';
 import { localOrVpn } from '@/lib/server/netrange';
 import { noMatchText, passwordLimit, passwordResult } from '@/lib/server/ratelimit';
+import { logEvent, logWrongPassword } from '@/lib/server/security';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,7 +38,7 @@ async function join(fd: FormData) {
     if (!lim.ok) redirect('/join?t=' + encodeURIComponent(t) + '&e=pw&w=' + Math.ceil(lim.waitMs / 60000));
     const ok = await passwordMatches(u, pw);
     await passwordResult(email, ip, ok);
-    if (!ok) redirect('/join?t=' + encodeURIComponent(t) + '&e=pw');
+    if (!ok) { await logWrongPassword(email, u.id, ip); redirect('/join?t=' + encodeURIComponent(t) + '&e=pw'); }
   } else {
     if (signup && signup.value === 'closed') redirect('/join?t=' + encodeURIComponent(t) + '&e=closed');
     if (!name) redirect('/join?t=' + encodeURIComponent(t) + '&e=1');
@@ -48,6 +49,7 @@ async function join(fd: FormData) {
   await db.invite.update({ where: { id: inv.id }, data: { usedAt: new Date() } });
   await db.user.update({ where: { id: u.id }, data: { currentHouseholdId: inv.householdId } });
   await startSession(u.id, u.totpOn);
+  if (!u.totpOn) await logEvent('signin', { userId: u.id, detail: { via: 'invite' } });
   redirect(u.totpOn ? '/twostep' : '/');
 }
 

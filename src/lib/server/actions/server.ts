@@ -3,6 +3,7 @@ import { promises as dns } from 'dns';
 import { type Action, type Ctx, db, need, str } from '../actions';
 import { APP_VERSION, backupSettings, makeBackup } from '../backup';
 import { privateIp, vpnIp } from '../netrange';
+import { logEvent } from '../security';
 
 const admin = (c: Ctx) => need(c.u.isAdmin, 'Only the server admin can change server settings.');
 const set = (key: string, value: object | string | boolean | number) => db.serverSetting.upsert({ where: { key }, update: { value }, create: { key, value } });
@@ -26,11 +27,17 @@ export const serverActions: Record<string, Action> = {
       need(folder, 'Choose a folder for backups.');
       await set('backups', { auto: 'auto' in b ? !!b.auto : cur.auto, freq: b.freq === 'weekly' ? 'weekly' : b.freq === 'daily' ? 'daily' : cur.freq, keep: [7, 14, 30].includes(Number(b.keep)) ? Number(b.keep) : cur.keep, folder, remind: 'remind' in b ? !!b.remind : cur.remind });
     }
+    // which settings changed (not their values) go in the security log
+    const changed = ['signup', 'allowOutside', 'invitesLocalOnly', 'requireTwoStep', 'backups'].filter((k) => k in p);
+    if (changed.length) await logEvent('settings', { userId: c.u.id, detail: { changed } });
   },
   backupNow: async (c) => {
     admin(c);
-    try { const b = await makeBackup(false); return { id: b.id, name: b.fileName }; }
+    let b;
+    try { b = await makeBackup(false); }
     catch (e) { need(false, 'The backup could not be written. ' + (e instanceof Error ? e.message : '')); }
+    await logEvent('backup', { userId: c.u.id, detail: { name: b!.fileName } });
+    return { id: b!.id, name: b!.fileName };
   },
   checkUpdate: async (c) => {
     admin(c);

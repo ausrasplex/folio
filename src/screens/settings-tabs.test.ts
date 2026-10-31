@@ -8,6 +8,8 @@ import Settings from './Settings';
 import Lenders from './Lenders';
 // @ts-expect-error: screens are plain JSX
 import Brokers from './Brokers';
+// @ts-expect-error: screens are plain JSX
+import Profile from './Profile';
 
 const data = (admin = false) => ({
   me: { id: 'u1', name: 'Alex', initials: 'A', theme: 'lilac', mode: 'light', prefs: {}, readAlerts: [], isAdmin: admin, canManage: true, sessions: [] },
@@ -114,6 +116,29 @@ describe('settings tabs in the address', () => {
     expect(out).toContain('aria-label="Export Harbour PDF"');
     expect(out).not.toContain('Options for Harbour PDF');
     expect(html({ ...data(), layouts: [{ ...lay, status: 'remap' }] }, 'layouts')).toContain('aria-label="Re-map Harbour PDF"');
+  });
+  it("shows your own security log in Profile's Recent Activity", () => {
+    const d = data();
+    const me = { ...d.me, sessions: [], securityLog: [{ id: 'e1', kind: 'password_changed', at: '2026-10-31T09:00:00.000Z', ip: '192.168.7.42', title: 'Password changed', detail: '1 other device signed out' }] };
+    const out = renderToStaticMarkup(React.createElement(HostCtx.Provider, { value: { data: { ...d, me }, act: async () => null, reload: async () => null } }, React.createElement(Profile)));
+    expect(out).toContain('Recent Activity');
+    expect(out).toContain('Password changed');
+    expect(out).toContain('1 other device signed out');
+    expect(out).toContain('192.168.7.42');
+  });
+  it("shows the server's security log on the admin's Server tab", () => {
+    const log = [
+      { id: 'e1', kind: 'signin_failed', at: '2026-10-31T09:00:00.000Z', ip: '203.0.113.9', title: 'Wrong password when signing in', detail: 'For alex@folio.local', who: 'Alex' },
+      { id: 'e2', kind: 'backup', at: '2026-10-31T02:00:00.000Z', ip: '', title: 'Backup made', detail: 'Automatic: folio-backup.folio', who: '' }
+    ];
+    const admin = { ...data(true), server: { backups: [], securityLog: log, backupSettings: { auto: true, freq: 'daily', keep: 7, folder: './backups', remind: false } } };
+    const out = html(admin, 'server');
+    expect(out).toContain('Security Log');
+    expect(out).toContain('Wrong password when signing in');
+    expect(out).toContain('For alex@folio.local');
+    expect(out).toContain('203.0.113.9');
+    expect(out).toMatch(/color:var\(--danger\)[^>]*>Wrong password when signing in/);
+    expect(html({ ...admin, server: { ...admin.server, securityLog: [] } }, 'server')).toContain('Nothing recorded yet.');
   });
   it('still renders each tab', () => {
     for (const t of ['household', 'notify', 'layouts', 'lenders', 'brokers', 'data']) expect(html(data(), t).length, t).toBeGreaterThan(1000);

@@ -195,6 +195,19 @@ export function DatePop({ dp, label }) {
   );
 }
 
+// security events that are a warning: shown in the danger colour
+const SECURITY_WARNINGS = ['signin_failed', 'signin_paused', 'code_failed', 'codes_locked', 'password_wrong'];
+/** The security log as shown in Profile (your own) and the Server tab (everyone's). */
+export function securityList(rows) {
+  const list = (rows || []).map((e, i) => ({
+    title: e.title, detail: e.detail || '', who: e.who || '', ip: e.ip || '',
+    when: new Date(e.at).toLocaleString('en-AU', { day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit' }),
+    tone: SECURITY_WARNINGS.includes(e.kind) ? 'color:var(--danger)' : '',
+    rowSt: 'display:flex;align-items:flex-start;gap:12px;padding:10px 0;' + (i ? 'border-top:1px solid var(--line)' : '')
+  }));
+  return { secLog: list, secNone: !list.length };
+}
+
 const cache = new Map();
 // Inline style string -> React style object. Respects quotes and brackets (data: URLs contain ';').
 export function css(str) {

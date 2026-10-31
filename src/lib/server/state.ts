@@ -5,6 +5,7 @@ import { db } from './db';
 import { dec } from './crypto';
 import { currentMembership, type CurrentUser } from './auth';
 import { APP_VERSION, backupSettings, dirSize, folderPath, freeSpace } from './backup';
+import { securityRows } from './security';
 import { DAY, FREQ_WORD, num, summarize, today0, yearFrac, type SplitRow } from './loanmath';
 
 const SLOTS = ['a1', 'a2', 'a3'];
@@ -239,7 +240,8 @@ export async function buildState(u: CurrentUser) {
   const server = u.isAdmin ? await serverInfo() : null;
 
   return {
-    me, households, household: { id: hid, name: m.household.name }, members, removedMembers, invites,
+    // your own newest 50 security events (sign-ins, password and two-step changes...)
+    me: { ...me, securityLog: await securityRows({ userId: u.id }, 50) }, households, household: { id: hid, name: m.household.name }, members, removedMembers, invites,
     lenders, brokers, deletedLenders, deletedBrokers, loans: loans.filter((l) => !l.archived), archivedLoans: loans.filter((l) => l.archived),
     accounts: accounts.filter((a) => !a.closedIso), closedAccounts: accounts.filter((a) => !!a.closedIso), statements, layouts, notifications,
     settings, channels, server, origin: process.env.FOLIO_URL || ''
@@ -260,6 +262,8 @@ async function serverInfo() {
   const first = await db.user.findFirst({ orderBy: { createdAt: 'asc' } });
   return {
     backups: backups.map((b) => ({ id: b.id, name: b.fileName, size: b.size, auto: b.auto, at: b.createdAt.toISOString() })),
+    // the whole server's newest security events, with each person named
+    securityLog: await securityRows({}, 50, new Map((await db.user.findMany({ select: { id: true, displayName: true } })).map((x) => [x.id, x.displayName]))),
     fileBytes: files._sum.size || 0, fileCount: files._count, households: hh, people, loansAccts, statements: statementsN, dbBytes: dbSize,
     backupBytes: await dirSize(dir), diskFree: disk.free, diskTotal: disk.total, backupSettings: bs, backupDir: dir, version: APP_VERSION, since: first ? first.createdAt.toISOString() : ''
   };
