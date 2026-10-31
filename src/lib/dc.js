@@ -249,7 +249,7 @@ export function PdfPage({ src, page, width, onPages, children, onSize }) {
       try {
         const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
         pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
-        const d = await pdfjs.getDocument(Object.assign(typeof src === 'string' ? { url: src } : { data: new Uint8Array(src.slice(0)) }, { standardFontDataUrl: '/pdf-fonts/' })).promise;
+        const d = await pdfjs.getDocument(Object.assign(typeof src === 'string' ? { url: src } : { data: new Uint8Array(src.slice(0)) }, { standardFontDataUrl: '/pdf-fonts/', isEvalSupported: false })).promise; // no eval: the Content-Security-Policy forbids it
         if (dead) return;
         setDoc(d); if (onPages) onPages(d.numPages);
       } catch (e) { if (!dead) setErr('This PDF could not be shown.'); }
