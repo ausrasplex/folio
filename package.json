@@ -15,7 +15,8 @@
     "db:reset": "prisma migrate reset",
     "db:studio": "prisma studio",
     "postinstall": "node tools/copy-pdf-assets.js && prisma generate",
-    "e2e": "node tools/e2e/smoke.js"
+    "e2e": "node tools/e2e/smoke.js",
+    "audit": "npm audit --omit=dev"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
@@ -25,13 +26,13 @@
   },
   "dependencies": {
     "@fontsource/plus-jakarta-sans": "^5.3.0",
-    "@prisma/client": "^6.19.3",
+    "@prisma/client": "6.19.3",
     "bcryptjs": "^3.0.3",
     "decimal.js": "^10.6.0",
     "jszip": "^3.10.2",
-    "next": "^15.5.28",
+    "next": "15.5.28",
     "otplib": "^13.5.0",
-    "pdfjs-dist": "^4.10.38",
+    "pdfjs-dist": "4.10.38",
     "qrcode": "^1.5.4",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
@@ -42,7 +43,7 @@
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
-    "prisma": "^6.19.3",
+    "prisma": "6.19.3",
     "tsx": "^4.23.15",
     "typescript": "^5.9.3",
     "vitest": "^3.2.7"

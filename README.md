@@ -104,6 +104,17 @@ Use a VPN, so Folio is never on the internet: [Tailscale](https://tailscale.com)
 
 [docs/security/REMOTE-ACCESS.md](docs/security/REMOTE-ACCESS.md) walks through Tailscale and WireGuard, the other options if a VPN won't do, and a checklist to work through before Folio is ever reachable from the internet. For HTTPS on your home network, see [docs/security/HTTPS-AT-HOME.md](docs/security/HTTPS-AT-HOME.md).
 
+## Updating
+
+1. Make a backup first: Settings › Server › Back up now.
+2. Get the new version (`git pull`), then install exactly what it lists: `npm ci`.
+3. Apply any database changes: `npx prisma migrate deploy`. It only adds to the database; never run `prisma migrate reset` on a real install.
+4. Build and restart: `npm run build`, then start Folio again.
+
+`next`, `prisma`, `@prisma/client` and `pdfjs-dist` are pinned to exact versions so every build is the same. Update one on purpose (`npm install next@15.5.29`), then run `npm run typecheck`, `npm test` and `npm run audit` before using it.
+
+Check for known problems in the packages Folio runs on with `npm run audit`. Findings that have been looked at and don't affect Folio are noted in [docs/security/DEPENDENCIES.md](docs/security/DEPENDENCIES.md).
+
 ## Good to know
 
 - There is no mail server, so changing your sign-in email asks for your password and changes it straight away.
