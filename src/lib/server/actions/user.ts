@@ -1,5 +1,5 @@
 import { type Action, db, need, str } from '../actions';
-import { checkPassword, hashPassword, requestIp } from '../auth';
+import { checkPassword, hashPassword, PASSWORD_RULE, passwordProblem, requestIp } from '../auth';
 import { clearFailures, emailLimit, failures, passwordLimit, passwordResult, recordAttempt, totpKey, waitText } from '../ratelimit';
 import { enc, sha256 } from '../crypto';
 import { makeRecoveryCodes, newSecret, otpUri, useRecoveryCode, useTotp } from '../twofactor';
@@ -69,7 +69,7 @@ export const userActions: Record<string, Action> = {
   changePassword: async ({ u, p }) => {
     await ownPassword(u, p.cur, 'Your current password is not right.');
     const nw = String(p.nw || '');
-    need(nw.length >= 12, 'The new password needs at least 12 characters.');
+    need(!passwordProblem(nw, u.email, u.displayName), PASSWORD_RULE);
     need(nw !== p.cur, 'Choose a password you have not used here.');
     await db.user.update({ where: { id: u.id }, data: { passwordHash: await hashPassword(nw) } });
     await mergePrefs(u.id, { pwChanged: new Date().toISOString() });

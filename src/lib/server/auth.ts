@@ -4,6 +4,8 @@ import { db } from './db';
 import { sha256, token } from './crypto';
 import { clientIpFrom } from './clientip';
 
+export { MIN_PASSWORD, passwordProblem, PASSWORD_RULE } from '../password';
+
 export const COOKIE = 'folio_session';
 // Over HTTPS the cookie is __Host- prefixed: browsers then only accept it when it is Secure, set by this host and for the whole site.
 export const SECURE_COOKIE = '__Host-folio_session';

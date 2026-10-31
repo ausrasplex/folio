@@ -1,7 +1,7 @@
 import { redirect } from 'next/navigation';
 import AuthCard from '@/components/AuthCard';
 import { db } from '@/lib/server/db';
-import { currentUser, hashPassword, passwordMatches, requestIp, startSession } from '@/lib/server/auth';
+import { currentUser, hashPassword, PASSWORD_RULE, passwordMatches, passwordProblem, requestIp, startSession } from '@/lib/server/auth';
 import { noMatchText, passwordLimit, passwordResult } from '@/lib/server/ratelimit';
 
 export const dynamic = 'force-dynamic';
@@ -32,7 +32,8 @@ async function join(fd: FormData) {
     if (!ok) redirect('/join?t=' + encodeURIComponent(t) + '&e=pw');
   } else {
     if (signup && signup.value === 'closed') redirect('/join?t=' + encodeURIComponent(t) + '&e=closed');
-    if (!name || pw.length < 8) redirect('/join?t=' + encodeURIComponent(t) + '&e=1');
+    if (!name) redirect('/join?t=' + encodeURIComponent(t) + '&e=1');
+    if (passwordProblem(pw, email, name)) redirect('/join?t=' + encodeURIComponent(t) + '&e=rule');
     u = await db.user.create({ data: { email, displayName: name, passwordHash: await hashPassword(pw) } });
   }
   await db.membership.upsert({ where: { userId_householdId: { userId: u.id, householdId: inv.householdId } }, update: { removedAt: null, role: inv.role }, create: { userId: u.id, householdId: inv.householdId, role: inv.role } });
@@ -48,7 +49,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ t
   if (!inv) return <AuthCard title="This invite has expired" sub="Invite links work once and expire after 7 days. Ask for a new one." ><a className="abtn" href="/signin" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}>Go to sign in</a></AuthCard>;
   const me = await currentUser();
   // never says whether the email already has an account
-  const err = sp.e === 'pw' ? noMatchText(sp.w) :sp.e === 'closed' ? 'This server is not taking new accounts right now.' : sp.e ? 'Fill in every field. The password needs at least 8 characters.' : undefined;
+  const err = sp.e === 'pw' ? noMatchText(sp.w) : sp.e === 'closed' ? 'This server is not taking new accounts right now.' : sp.e === 'rule' ? PASSWORD_RULE : sp.e ? 'Fill in your name, email and password.' : undefined;
   return (
     <AuthCard title={'Join ' + inv.household.name} sub={'You have been invited as ' + (inv.role === 'OWNER' ? 'an owner' : inv.role === 'EDITOR' ? 'an editor' : 'a viewer') + '. Already have an account on this server? Use its email and password.'} error={err}>
       <form action={join} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
