@@ -1,0 +1,406 @@
+// Folio data model (docs/SPEC.md, "Data model"). Money is exact decimal.
+// Removable records carry deletedAt / deletedById / deleteReason and are hidden, never hard-deleted.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  OWNER
+  EDITOR
+  VIEWER
+}
+
+enum SplitKind {
+  VARIABLE
+  FIXED
+}
+
+enum Frequency {
+  WEEKLY
+  FORTNIGHTLY
+  MONTHLY
+}
+
+model User {
+  id            String         @id @default(cuid())
+  email         String         @unique
+  pendingEmail  String?
+  emailToken    String?
+  passwordHash  String
+  displayName   String
+  photo         String?        // small data URL
+  isAdmin       Boolean        @default(false) // server-wide, set once
+  theme         String         @default("lilac")
+  mode          String         @default("light")
+  prefs         Json           @default("{}") // hero cards, notification choices, read alerts
+  totpSecret    String?        // encrypted
+  totpOn        Boolean        @default(false)
+  recoveryCodes Json?          // hashed
+  currentHouseholdId String?
+  memberships   Membership[]
+  sessions      Session[]
+  borrowing     LoanBorrower[]
+  holding       AccountHolder[]
+  channels      Channel[]
+  createdAt     DateTime       @default(now())
+}
+
+model Session {
+  id         String   @id // sha256 of the cookie token
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     String
+  userAgent  String?
+  ip         String?
+  pending2fa Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  lastSeen   DateTime @default(now())
+}
+
+model Household {
+  id          String       @id @default(cuid())
+  name        String
+  memberships Membership[]
+  invites     Invite[]
+  loans       Loan[]
+  accounts    Account[]
+  lenders     Lender[]
+  brokers     Broker[]
+  statements  Statement[]
+  createdAt   DateTime     @default(now())
+  deletedAt   DateTime?
+}
+
+model Membership {
+  id          String    @id @default(cuid())
+  user        User      @relation(fields: [userId], references: [id])
+  userId      String
+  household   Household @relation(fields: [householdId], references: [id])
+  householdId String
+  role        Role      @default(VIEWER)
+  joinedAt    DateTime  @default(now())
+  removedAt   DateTime?
+
+  @@unique([userId, householdId])
+}
+
+model Invite {
+  id          String    @id @default(cuid())
+  household   Household @relation(fields: [householdId], references: [id])
+  householdId String
+  token       String    @unique
+  role        Role      @default(VIEWER)
+  createdById String
+  createdAt   DateTime  @default(now())
+  expiresAt   DateTime
+  usedAt      DateTime?
+  revokedAt   DateTime?
+}
+
+model Lender {
+  id          String    @id @default(cuid())
+  household   Household @relation(fields: [householdId], references: [id])
+  householdId String
+  name        String
+  currency    String    @default("AUD")
+  dayCount    Int       @default(365)
+  website     String?
+  phone       String?
+  email       String?
+  note        String?
+  icon        String?   // small data URL
+  logo        String?
+  loans       Loan[]
+  accounts    Account[]
+  createdAt   DateTime  @default(now())
+  deletedAt   DateTime?
+  deletedById String?
+}
+
+model Broker {
+  id          String    @id @default(cuid())
+  household   Household @relation(fields: [householdId], references: [id])
+  householdId String
+  name        String
+  company     String?
+  licence     String?
+  address     String?
+  phone       String?
+  email       String?
+  website     String?
+  note        String?
+  photo       String?
+  reviewOn    Boolean   @default(false)
+  lastReview  DateTime?
+  reviewEvery Int       @default(6)
+  loans       Loan[]
+  createdAt   DateTime  @default(now())
+  deletedAt   DateTime?
+  deletedById String?
+}
+
+model Loan {
+  id             String         @id @default(cuid())
+  household      Household      @relation(fields: [householdId], references: [id])
+  householdId    String
+  lender         Lender         @relation(fields: [lenderId], references: [id])
+  lenderId       String
+  broker         Broker?        @relation(fields: [brokerId], references: [id])
+  brokerId       String?
+  name           String
+  purpose        String         @default("Home loan") // Home loan | Investment loan | Personal loan | Car loan
+  status         String         @default("active")   // active | archived
+  closedReason   String?        // Paid off | Refinanced | Archived
+  startDate      DateTime
+  termYears      Int            @default(30)
+  postingDay     Int?           // interest day of month; null = read from the first statement
+  offsetOrder    String         @default("auto") // auto (highest rate first) | proRata | statements | manual
+  redraw         Boolean        @default(false)
+  customerId     String?        // encrypted
+  accountNumber  String?        // encrypted
+  lenderSnapshot Json?
+  brokerSnapshot Json?
+  closedAt       DateTime?
+  borrowers      LoanBorrower[]
+  splits         LoanSplit[]
+  offsetAccounts Account[]
+  events         LoanEvent[]
+  scenarios      Scenario[]
+  createdAt      DateTime       @default(now())
+  createdById    String?
+}
+
+model LoanBorrower {
+  loan   Loan   @relation(fields: [loanId], references: [id])
+  loanId String
+  user   User   @relation(fields: [userId], references: [id])
+  userId String
+
+  @@id([loanId, userId])
+}
+
+model LoanSplit {
+  id             String       @id @default(cuid())
+  loan           Loan         @relation(fields: [loanId], references: [id])
+  loanId         String
+  name           String
+  kind           SplitKind    @default(VARIABLE)
+  fixedUntil     DateTime?
+  openingBalance Decimal      @db.Decimal(14, 2)
+  startRate      Decimal      @db.Decimal(6, 4)
+  repayment      Decimal      @db.Decimal(14, 2)
+  frequency      Frequency    @default(MONTHLY)
+  repayDay       Int          @default(1) // weekday 0-6 for weekly/fortnightly, day of month for monthly
+  anchorDate     DateTime?    // first repayment, sets the fortnight
+  interestOnly   Boolean      @default(false)
+  balanceAmount  Decimal?     @db.Decimal(14, 2) // balance the person entered, as at balanceDate
+  balanceDate    DateTime?
+  accountSuffix  String?
+  sortOrder      Int          @default(0)
+  rateChanges    RateChange[]
+  repaymentChanges RepaymentChange[]
+  statements     Statement[]
+  createdAt      DateTime     @default(now())
+  deletedAt      DateTime?
+  deletedById    String?
+  deleteReason   String?
+}
+
+model RateChange {
+  id            String    @id @default(cuid())
+  split         LoanSplit @relation(fields: [splitId], references: [id])
+  splitId       String
+  effectiveDate DateTime
+  rate          Decimal   @db.Decimal(6, 4)
+  confirmed     Boolean   @default(true)
+  source        String    @default("manual") // manual | statement
+  note          String?
+  createdAt     DateTime  @default(now())
+  deletedAt     DateTime?
+}
+
+model RepaymentChange {
+  id            String    @id @default(cuid())
+  split         LoanSplit @relation(fields: [splitId], references: [id])
+  splitId       String
+  effectiveDate DateTime
+  amount        Decimal   @db.Decimal(14, 2)
+  frequency     Frequency
+  createdAt     DateTime  @default(now())
+  deletedAt     DateTime?
+}
+
+model LoanEvent {
+  id        String    @id @default(cuid())
+  loan      Loan      @relation(fields: [loanId], references: [id])
+  loanId    String
+  splitId   String?
+  kind      String    // lump | redraw | fee | holiday | note | refinance | archive
+  date      DateTime
+  amount    Decimal?  @db.Decimal(14, 2)
+  note      String?
+  createdById String?
+  createdAt DateTime  @default(now())
+  deletedAt DateTime?
+}
+
+model Scenario {
+  id        String   @id @default(cuid())
+  loan      Loan     @relation(fields: [loanId], references: [id])
+  loanId    String
+  userId    String
+  name      String
+  inputs    Json
+  createdAt DateTime @default(now())
+}
+
+model Account {
+  id             String          @id @default(cuid())
+  household      Household       @relation(fields: [householdId], references: [id])
+  householdId    String
+  lender         Lender          @relation(fields: [lenderId], references: [id])
+  lenderId       String
+  name           String
+  type           String          @default("Everyday") // Everyday | Savings | Bills | Offset
+  openedAt       DateTime?
+  bsb            String?         // encrypted
+  number         String?         // encrypted
+  nameOnAccount  String?
+  openingBalance Decimal         @default(0) @db.Decimal(14, 2)
+  openingDate    DateTime?
+  offsetLoan     Loan?           @relation(fields: [offsetLoanId], references: [id])
+  offsetLoanId   String?
+  holders        AccountHolder[]
+  statements     Statement[]
+  createdAt      DateTime        @default(now())
+  closedAt       DateTime?
+  deletedAt      DateTime?
+}
+
+model AccountHolder {
+  account   Account @relation(fields: [accountId], references: [id])
+  accountId String
+  user      User    @relation(fields: [userId], references: [id])
+  userId    String
+
+  @@id([accountId, userId])
+}
+
+model Layout {
+  id          String          @id @default(cuid())
+  name        String
+  lenderName  String          // layouts are shared server-wide, so they key on the lender's name
+  kind        String          // loan | account
+  format      String          // PDF | CSV
+  status      String          @default("ok") // ok | remap
+  failedNote  String?
+  versions    LayoutVersion[]
+  createdAt   DateTime        @default(now())
+  deletedAt   DateTime?
+  deletedById String?
+}
+
+model LayoutVersion {
+  id          String      @id @default(cuid())
+  layout      Layout      @relation(fields: [layoutId], references: [id])
+  layoutId    String
+  version     Int
+  map         Json        // PDF: { sectionId: { page, box:[x,y,w,h] } }; CSV: { cols:[role], dateFmt, header:[...] }
+  fingerprint Json        // header words used to match statements
+  createdBy   String
+  createdAt   DateTime    @default(now())
+  statements  Statement[]
+}
+
+model StoredFile {
+  id        String      @id @default(cuid())
+  name      String
+  mime      String
+  size      Int
+  data      Bytes
+  pending   Json?       // waiting for review or a layout: { householdId, userId, dest }
+  createdAt DateTime    @default(now())
+  statements Statement[]
+}
+
+model Statement {
+  id              String         @id @default(cuid())
+  household       Household      @relation(fields: [householdId], references: [id])
+  householdId     String
+  split           LoanSplit?     @relation(fields: [splitId], references: [id])
+  splitId         String?
+  account         Account?       @relation(fields: [accountId], references: [id])
+  accountId       String?
+  periodStart     DateTime
+  periodEnd       DateTime
+  opening         Decimal        @db.Decimal(14, 2)
+  closing         Decimal        @db.Decimal(14, 2)
+  interest        Decimal        @default(0) @db.Decimal(14, 2)
+  credits         Decimal        @default(0) @db.Decimal(14, 2)
+  debits          Decimal        @default(0) @db.Decimal(14, 2)
+  paymentsInAdvance Decimal?     @db.Decimal(14, 2)
+  rate            Decimal?       @db.Decimal(6, 4)
+  status          String         @default("Imported") // Reconciled | Imported | Needs attention
+  statusNote      String?
+  reviewedAt      DateTime?
+  reviewNote      String?
+  layoutVersion   LayoutVersion? @relation(fields: [layoutVersionId], references: [id])
+  layoutVersionId String?
+  file            StoredFile?    @relation(fields: [fileId], references: [id])
+  fileId          String?
+  pages           Int            @default(1)
+  importedById    String?
+  importedAt      DateTime       @default(now())
+  txns            Txn[]
+  deletedAt       DateTime?
+  deletedById     String?
+  deleteReason    String?
+}
+
+model Txn {
+  id          String    @id @default(cuid())
+  statement   Statement @relation(fields: [statementId], references: [id], onDelete: Cascade)
+  statementId String
+  date        DateTime
+  description String
+  debit       Decimal   @default(0) @db.Decimal(14, 2)
+  credit      Decimal   @default(0) @db.Decimal(14, 2)
+  balance     Decimal?  @db.Decimal(14, 2)
+  rate        Decimal?  @db.Decimal(6, 4) // rate-change lines
+  category    String?
+  page        Int       @default(1)
+  row         Int       @default(0)
+  y           Float? // where the row sits on its page, % from the top
+  yh          Float?
+  dedupeKey   String
+}
+
+model Channel {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  service   String   // discord | telegram | ntfy | gotify | ha | webhook
+  config    Json     // secrets encrypted
+  amounts   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, service])
+}
+
+model ServerSetting {
+  key   String @id
+  value Json
+}
+
+model Backup {
+  id        String   @id @default(cuid())
+  fileName  String
+  size      Int
+  auto      Boolean  @default(true)
+  createdAt DateTime @default(now())
+}

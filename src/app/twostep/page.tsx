@@ -1,0 +1,40 @@
+import { redirect } from 'next/navigation';
+import AuthCard from '@/components/AuthCard';
+import { db } from '@/lib/server/db';
+import { currentUser, endSession } from '@/lib/server/auth';
+import { checkTotp, useRecoveryCode } from '@/lib/server/twofactor';
+
+export const dynamic = 'force-dynamic';
+
+async function verify(fd: FormData) {
+  'use server';
+  const u = await currentUser(true);
+  if (!u) redirect('/signin');
+  const code = String(fd.get('code') || '').replace(/\s/g, '');
+  const ok = (await checkTotp(u.id, code)) || (await useRecoveryCode(u.id, code));
+  if (!ok) redirect('/twostep?e=1');
+  await db.session.update({ where: { id: u.sessionId }, data: { pending2fa: false } });
+  redirect('/');
+}
+
+async function cancel() {
+  'use server';
+  await endSession();
+  redirect('/signin');
+}
+
+export default async function Page({ searchParams }: { searchParams: Promise<{ e?: string }> }) {
+  const u = await currentUser(true);
+  if (!u) redirect('/signin');
+  if (!u.pending2fa) redirect('/');
+  const sp = await searchParams;
+  return (
+    <AuthCard title="Enter your code" sub="Open your authenticator app and enter the 6-digit code for Folio. Lost your phone? Enter one of your recovery codes instead." error={sp.e ? 'That code did not work. Codes change every 30 seconds.' : undefined}>
+      <form action={verify} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <label className="afld"><span>Code</span><input name="code" inputMode="numeric" autoComplete="one-time-code" autoFocus required /></label>
+        <button className="abtn" type="submit">Continue</button>
+      </form>
+      <form action={cancel} className="alink"><button type="submit" style={{ border: 0, background: 'none', color: 'var(--ink)', fontWeight: 600, cursor: 'pointer', font: 'inherit' }}>Use another account</button></form>
+    </AuthCard>
+  );
+}

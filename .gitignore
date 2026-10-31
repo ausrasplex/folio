@@ -1,0 +1,15 @@
+node_modules
+.next
+.env
+tsconfig.tsbuildinfo
+tools/shots
+backups
+public/pdf.worker.min.mjs
+public/pdf-fonts
+tools/testdata/home-split01.json
+tools/testdata/home-split01.pdf
+tools/testdata/cu-export.csv
+docs/
+public/logo.vectorcraft
+prisma/seed.ts
+.continue/permissions.yml
