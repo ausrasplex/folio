@@ -174,12 +174,16 @@ export interface ForecastInput {
 export interface ForecastPoint {
   date: Date;
   balance: number;
+  /** Each split's balance on that day. */
+  splits: Record<string, number>;
 }
 
 export interface ForecastResult {
   points: ForecastPoint[];
   payoffDate: Date | null;
   totalInterest: Decimal;
+  /** The day each split reaches zero, if it does within the horizon. */
+  splitPayoffs: Record<string, Date>;
 }
 
 const perYear: Record<Frequency, number> = { WEEKLY: 52, FORTNIGHTLY: 26, MONTHLY: 12 };
@@ -215,7 +219,9 @@ export function forecast(input: ForecastInput): ForecastResult {
   const points: ForecastPoint[] = [];
   let total = new Decimal(0);
   let payoff: Date | null = null;
+  const splitPayoffs: Record<string, Date> = {};
   const sumBal = () => Object.values(balances).reduce((t, b) => t.plus(Decimal.max(0, b)), new Decimal(0));
+  const each = () => Object.fromEntries(splits.map((s) => [s.id, Decimal.max(0, balances[s.id]).toNumber()]));
   for (let i = 0; i <= horizon; i++) {
     const day = new Date(dayStart(input.start).getTime() + i * DAY);
     for (const s of splits) {
@@ -240,12 +246,13 @@ export function forecast(input: ForecastInput): ForecastResult {
         pending[s.id] = new Decimal(0);
       }
     }
-    if (i === 0 || day.getUTCDate() === 1) points.push({ date: day, balance: sumBal().toNumber() });
+    for (const s of splits) if (!splitPayoffs[s.id] && balances[s.id].lte(0)) splitPayoffs[s.id] = day;
+    if (i === 0 || day.getUTCDate() === 1) points.push({ date: day, balance: sumBal().toNumber(), splits: each() });
     if (sumBal().lte(0)) {
       payoff = day;
-      points.push({ date: day, balance: 0 });
+      points.push({ date: day, balance: 0, splits: each() });
       break;
     }
   }
-  return { points, payoffDate: payoff, totalInterest: total };
+  return { points, payoffDate: payoff, totalInterest: total, splitPayoffs };
 }

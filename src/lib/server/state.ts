@@ -152,6 +152,7 @@ export async function buildState(u: CurrentUser) {
       splits: sm.splits.map((x, k) => ({
         id: x.s.id, name: x.s.name, startOffer: startOffers.get(x.s.id) || null, suffix: x.s.accountSuffix || String(k + 1).padStart(2, '0'), kind: x.s.kind === 'FIXED' ? 'fixed' : 'variable', fixedUntil: iso(x.s.fixedUntil),
         bal: x.bal, balDate: iso(x.balDate), balFrom: x.balFrom, orig: num(x.s.openingBalance), rate: x.rate, rateSince: iso(x.rateSince), startRate: num(x.s.startRate),
+        series: x.series, payoff: monY(x.payoff), payoffIso: iso(x.payoff),
         repay: x.repay, freq: FREQ_WORD[x.freq], repayDay: x.s.repayDay, anchor: iso(x.s.anchorDate), io: x.s.interestOnly,
         rates: [{ date: iso(l.startDate), rate: num(x.s.startRate), confirmed: true }].concat(x.s.rateChanges.filter((c) => !c.deletedAt).sort((a, b) => +a.effectiveDate - +b.effectiveDate).map((c) => ({ date: iso(c.effectiveDate), rate: num(c.rate), confirmed: c.confirmed, id: (c as unknown as { id: string }).id }))),
         repayments: x.s.repaymentChanges.filter((c) => !c.deletedAt).map((c) => ({ date: iso(c.effectiveDate), amount: num(c.amount), freq: FREQ_WORD[c.frequency] })),

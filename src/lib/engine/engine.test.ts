@@ -62,4 +62,12 @@ describe('forecast', () => {
     expect(forecast({ ...base, offset: 82400 }).payoffDate!.getTime()).toBeLessThan(plain);
     expect(forecast({ ...base, extra: 100 }).payoffDate!.getTime()).toBeLessThan(plain);
   });
+
+  it("records each split's balance and the day each one is paid off", () => {
+    const small = { ...variable('s2', 20000, 6.16), repayment: 413, frequency: 'WEEKLY' as const, weekday: 4 };
+    const r = forecast({ ...base, splits: [...base.splits, small] });
+    for (const p of r.points) expect(Math.abs(p.splits.s1 + p.splits.s2 - p.balance)).toBeLessThan(0.01);
+    expect(r.splitPayoffs.s2.getTime()).toBeLessThan(r.splitPayoffs.s1.getTime());
+    expect(r.splitPayoffs.s1.getTime()).toBe(r.payoffDate!.getTime());
+  });
 });

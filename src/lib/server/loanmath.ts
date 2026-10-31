@@ -104,15 +104,21 @@ export function summarize(l: LoanSummaryInput) {
     rates: [{ from: new Date(0), rate: x.rate }], repayment: x.repay, frequency: x.freq, weekday: x.freq === 'MONTHLY' ? undefined : x.s.repayDay
   }));
   const start = asAt.getTime() > 0 ? utc(asAt) : now;
-  const fc = fsplits.length ? forecast({ start, splits: fsplits, postingDay, offset: l.offsetBalance, dayCount: l.dayCount, order: l.offsetOrder === 'proRata' ? 'proRata' : 'highestRate', maxYears: Math.max(5, l.termYears + 10) }) : { points: [{ date: start, balance: 0 }], payoffDate: start, totalInterest: new Decimal(0) };
+  const fc = fsplits.length ? forecast({ start, splits: fsplits, postingDay, offset: l.offsetBalance, dayCount: l.dayCount, order: l.offsetOrder === 'proRata' ? 'proRata' : 'highestRate', maxYears: Math.max(5, l.termYears + 10) }) : { points: [{ date: start, balance: 0, splits: {} }], payoffDate: start, totalInterest: new Decimal(0), splitPayoffs: {} as Record<string, Date> };
   const series = fc.points.map((p) => [Math.round(yearFrac(p.date) * 1000) / 1000, Math.round(p.balance)] as [number, number]);
+  // each split's own projection; a split already at zero has none and is paid off as at its balance date
+  const splitOut = splits.map((x) => {
+    const own = x.bal > 0 ? fc.points.map((p) => [Math.round(yearFrac(p.date) * 1000) / 1000, Math.round(p.splits[x.s.id] ?? 0)] as [number, number]) : [];
+    const cut = own.findIndex(([, b]) => b <= 0);
+    return { ...x, series: cut >= 0 ? own.slice(0, cut + 1) : own, payoff: x.bal > 0 ? fc.splitPayoffs[x.s.id] || null : x.balDate };
+  });
   const weighted = bal > 0 ? splits.reduce((t, x) => t + x.rate * x.bal, 0) / bal : (splits[0]?.rate || 0);
   const startRateW = orig > 0 ? l.splits.reduce((t, s) => t + num(s.startRate) * num(s.openingBalance), 0) / orig : 0;
   const expected = scheduleBalance(orig, startRateW, l.termYears, l.startDate, now);
   const perMonth = splits.reduce((t, x) => t + x.repay * PER[x.freq] / 12, 0);
   const nexts = splits.map((x) => nextPayment(x.freq, x.s.repayDay, x.s.anchorDate)).sort((a, b) => +a - +b);
   return {
-    splits, bal, orig, asAt: start, postingDay, rate: weighted, expected, ahead: expected - bal, perMonth,
+    splits: splitOut, bal, orig, asAt: start, postingDay, rate: weighted, expected, ahead: expected - bal, perMonth,
     next: nexts[0] || null, payoff: fc.payoffDate, totalInterest: fc.totalInterest.toNumber(), series
   };
 }
