@@ -176,20 +176,22 @@ export function readPdf(pages: Page[], map: PdfMap, kind: string): Read {
   const txns: Txn[] = [];
   if (tb && cols[0] && cols[1]) {
     for (const p of pages.filter((x) => x.n >= tb.page)) {
-      // on continuation pages the table runs from near the top, so widen the box upwards and downwards
-      const box = p.n === tb.page ? tb.box : [tb.box[0], 3, tb.box[2], 94];
+      // on continuation pages the table runs from near the top, so widen the box upwards and downwards; on the first
+      // page it can run further down than in the sample (a busier period), so it reaches as far down as the others
+      const box = p.n === tb.page ? [tb.box[0], tb.box[1], tb.box[2], Math.max(tb.box[3], 97 - tb.box[1])] : [tb.box[0], 3, tb.box[2], 94];
       const its = splitDates(p.items.filter((it) => inBox(it, box)), cols[0]!);
-      let row = 0;
+      let row = 0, dated = false; // wrapped text only joins a row on the same page, not a page header after it
       for (const ln of lines(its)) {
         const col = (c: Box | undefined) => c ? ln.filter((it) => { const cx = it.x + it.w / 2; return cx >= c.box[0] && cx <= c.box[0] + c.box[2]; }).map((it) => it.s).join(' ').trim() : '';
         const dTxt = col(cols[0]), desc = col(cols[1]), deb = col(cols[2]), cre = col(cols[3]), bal = col(cols[4]);
         const ds = datesIn(dTxt + (dTxt && !/\d{4}/.test(dTxt) && pd[1] ? ' ' + pd[1].slice(0, 4) : ''));
         if (ds.length) {
           const debit = Math.abs(moneyIn(deb) ?? 0), credit = Math.abs(moneyIn(cre) ?? 0), b = moneyIn(bal);
+          dated = true;
           txns.push({ date: ds[0], description: desc, debit: r2(debit), credit: r2(credit), balance: b == null ? null : r2(Math.abs(b)), rate: /rate/i.test(desc) ? rateIn(desc) : null, page: p.n, row: row++, y: Math.round(Math.min(...ln.map((it) => it.y)) * 100) / 100, yh: Math.round(Math.max(...ln.map((it) => it.h)) * 100) / 100 });
         } else if (BALANCE_LINE.test(desc) && !rateIn(desc)) {
           continue; // an undated sub total or carried-forward line: not part of the transaction above
-        } else if (txns.length && desc && !deb && !cre && !/^(date|description|transaction|details)/i.test(desc)) {
+        } else if (dated && desc && !deb && !cre && !/^(date|description|transaction|details)/i.test(desc)) {
           txns[txns.length - 1].description += ' ' + desc; // wrapped line
           if (/rate/i.test(desc) && txns[txns.length - 1].rate == null) txns[txns.length - 1].rate = rateIn(desc);
         }
@@ -215,7 +217,9 @@ function finish(r: Read, kind: string): Read {
   if (r.credits == null) r.credits = sum('credit');
   if (kind === 'loan') {
     if (r.interest == null) r.interest = sum('debit', (t) => /interest/i.test(t.description));
-    if (r.debits == null) r.debits = r2(sum('debit') - (r.interest || 0));
+    // debits other than interest, counted from the rows (not all debits less the interest figure, which a statement can
+    // show net of an interest adjustment credit)
+    if (r.debits == null) r.debits = sum('debit', (t) => !/interest/i.test(t.description));
   } else if (r.debits == null) r.debits = sum('debit');
   if (r.opening == null && r.txns.length && r.txns[0].balance != null) r.opening = r2(r.txns[0].balance - r.txns[0].debit * (kind === 'loan' ? 1 : -1) + r.txns[0].credit * (kind === 'loan' ? 1 : -1));
   if (r.closing == null) { const last = [...r.txns].reverse().find((t) => t.balance != null); if (last) r.closing = last.balance; }

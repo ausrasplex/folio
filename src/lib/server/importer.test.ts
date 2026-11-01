@@ -44,6 +44,18 @@ describe('readPdf', () => {
     // no transactions but a different closing balance: the table was missed
     expect(readPdf([summary('1,400.00')], map as never, 'account').ok).toBe(false);
   });
+  it('reads a row just below where the sample table ended, and a summary net of an interest adjustment', () => {
+    // the sample's table box ends at y 26; this busier statement's last row sits just below it
+    const map = { ...accountMap, table: { page: 1, box: [2, 15, 96, 11] }, period: { page: 1, box: [0, 1, 20, 3] }, opening: { page: 1, box: [9, 5, 9, 3] }, interest: { page: 1, box: [29, 5, 9, 3] }, credits: { page: 1, box: [49, 5, 9, 3] }, closing: { page: 1, box: [69, 5, 9, 3] } };
+    const sum = (s: string, x: number): Item => ({ s, x, y: 6, w: 6, h: 1.5, page: 1 });
+    const p = page(1, [['10 Jun 2023', 'INTEREST', '823.55', '', '270,415.17'], ['10 Jun 2023', 'INT ADJUSTMENT', '', '1.85', '270,413.32'], ['12 Jun 2023', 'REPAYMT A/C TFR', '', '1,598.00', '268,815.32'], ['13 Jun 2023', 'INTERNET PMT', '', '1.00', '268,814.32']]);
+    p.items.push({ s: '12/05/2023 to 11/06/2023', x: 1, y: 2, w: 15, h: 1.5, page: 1 }, sum('269,591.62', 10), sum('$821.70', 30), sum('1,599.00', 50), sum('268,814.32', 70));
+    const r = readPdf([p], map as never, 'loan');
+    expect(r.txns).toHaveLength(4);
+    // the bank's interest (823.55 less the 1.85 adjustment) and credits (without it) add up; no phantom debit
+    expect(r.debits).toBe(0);
+    expect(r.ok).toBe(true);
+  });
   it("keeps a loan's opening line when it states the rate", () => {
     const r = readPdf([page(1, [['12 Feb 2025', 'Opening Balance Interest Rate 6.350% PA', '', '', '249,546.10'], ['13 Feb 2025', 'REPAYMT A/C TFR', '', '419.00', '249,127.10']])], accountMap as never, 'loan');
     expect(r.txns.map((t) => t.rate)).toEqual([6.35, null]);

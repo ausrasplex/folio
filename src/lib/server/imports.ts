@@ -83,9 +83,11 @@ export async function interestStatus(read: Read, dest: { id: string; postingDay:
   const benefit = read.offsetBenefit && read.offsetBenefit > 0 ? read.offsetBenefit : 0;
   const gross = engineInterest(read, { rateAt, confirmed, postingDay: dest.postingDay, usualDay, dayCount: dest.dayCount, bankCharges: benefit > 0 });
   if (gross == null) return { status: 'Reconciled', note: null };
-  const calc = Math.round((gross - benefit) * 100) / 100;
-  const after = benefit ? ', after the statement\'s offset benefit of $' + benefit.toFixed(2) : '';
-  if (Math.abs(calc - read.interest) <= 0.011) return { status: 'Reconciled', note: benefit ? 'Interest matches' + after : null };
+  // an interest adjustment (a credit such as INT ADJUSTMENT) is netted into the statement's interest figure
+  const adjust = Math.round(read.txns.filter((t) => t.credit > 0 && /\bint(erest)?\b/i.test(t.description) && /adj/i.test(t.description)).reduce((s, t) => s + t.credit, 0) * 100) / 100;
+  const calc = Math.round((gross - benefit - adjust) * 100) / 100;
+  const after = (benefit ? ', after the statement\'s offset benefit of $' + benefit.toFixed(2) : '') + (adjust ? (benefit ? ' and' : ', after') + ' an interest adjustment of $' + adjust.toFixed(2) : '');
+  if (Math.abs(calc - read.interest) <= 0.011) return { status: 'Reconciled', note: benefit || adjust ? 'Interest matches' + after : null };
   return { status: 'Needs attention', note: 'Interest differs by $' + Math.abs(calc - read.interest).toFixed(2) + ' (statement $' + read.interest.toFixed(2) + ', Folio worked out $' + calc.toFixed(2) + after + ')' };
 }
 
