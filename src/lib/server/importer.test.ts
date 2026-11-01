@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { datesIn, moneyIn, parseCsv, rateIn, readCsv, readPdf, type Item, type Page } from './importer';
+import { datesIn, moneyIn, parseCsv, rateIn, readCsv, readPdf, withYear, type Item, type Page } from './importer';
 
 // a two-page account statement table: date, description, debit, credit and balance columns
 const COLS = { date: 6, desc: 20, debit: 60, credit: 72, balance: 85 };
@@ -63,6 +63,20 @@ describe('readPdf', () => {
   it('keeps an opening line whose rate wraps onto the next line', () => {
     const r = readPdf([page(1, [['12 Feb 2025', 'Opening Balance', '', '', '249,546.10'], ['', 'Interest Rate 6.350% PA', '', '', ''], ['13 Feb 2025', 'REPAYMT A/C TFR', '', '419.00', '249,127.10']])], accountMap as never, 'loan');
     expect(r.txns.map((t) => t.rate)).toEqual([6.35, null]);
+  });
+});
+
+describe('withYear', () => {
+  const period = ['2025-07-22', '2026-01-21'];
+  it('gives a date without a year the year that puts it inside the statement period', () => {
+    expect(datesIn(withYear('23 JUL', period))).toEqual(['2025-07-23']);
+    expect(datesIn(withYear('18 OCT', period))).toEqual(['2025-10-18']);
+    expect(datesIn(withYear('15 JAN', period))).toEqual(['2026-01-15']);
+    expect(datesIn(withYear('28 JAN', period))).toEqual(['2026-01-28']); // a week past the end keeps the end year
+  });
+  it('treats only a real year as one, not a margin code', () => {
+    expect(datesIn(withYear('BOM61100_05/11 18 OCT', period))).toEqual(['2025-10-18']);
+    expect(withYear('12 Feb 2025', period)).toBe('12 Feb 2025');
   });
 });
 

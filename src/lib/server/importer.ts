@@ -168,6 +168,17 @@ function splitDates(items: Item[], dateCol: Box): Item[] {
   });
 }
 
+/** A row date printed without a year ("23 JUL") takes the year that puts it inside the statement period, so a July
+ *  row in a July to January statement is the earlier year. A few weeks past the period's end still counts as its
+ *  end year. Only a real year (19xx or 20xx) counts as one: a margin code such as BOM61100_05/11 does not. */
+export function withYear(dTxt: string, period: string[]): string {
+  if (!dTxt || /\b(19|20)\d{2}\b/.test(dTxt) || !period[1]) return dTxt;
+  const endYear = Number(period[1].slice(0, 4));
+  const d = datesIn(dTxt + ' ' + endYear)[0];
+  const late = d && new Date(d + 'T00:00:00Z').getTime() - new Date(period[1] + 'T00:00:00Z').getTime() > 31 * 86400000;
+  return dTxt + ' ' + (late ? endYear - 1 : endYear);
+}
+
 export function readPdf(pages: Page[], map: PdfMap, kind: string): Read {
   const f = (k: string) => textIn(pages, map[k]);
   const pd = datesIn(f('period'));
@@ -184,7 +195,7 @@ export function readPdf(pages: Page[], map: PdfMap, kind: string): Read {
       for (const ln of lines(its)) {
         const col = (c: Box | undefined) => c ? ln.filter((it) => { const cx = it.x + it.w / 2; return cx >= c.box[0] && cx <= c.box[0] + c.box[2]; }).map((it) => it.s).join(' ').trim() : '';
         const dTxt = col(cols[0]), desc = col(cols[1]), deb = col(cols[2]), cre = col(cols[3]), bal = col(cols[4]);
-        const ds = datesIn(dTxt + (dTxt && !/\d{4}/.test(dTxt) && pd[1] ? ' ' + pd[1].slice(0, 4) : ''));
+        const ds = datesIn(withYear(dTxt, pd));
         if (ds.length) {
           const debit = Math.abs(moneyIn(deb) ?? 0), credit = Math.abs(moneyIn(cre) ?? 0), b = moneyIn(bal);
           dated = true;
