@@ -50,6 +50,7 @@ export function queryTxns(rows: TxnRow[], rules: RuleRow[], own: { name: string;
     byCatAll: Object.values(all2).sort((a, b) => b.out + b.in - (a.out + a.in)),
     years: [...new Set(all.map((t) => t.date.slice(0, 4)))].sort().reverse(),
     cats: [...new Set(all.map((t) => t.cat))].sort(),
-    uncategorised: all.filter((t) => t.catBy === 'auto').length
+    uncategorised: all.filter((t) => t.catBy === 'auto').length,
+    firstDate: all.reduce((d, t) => (!d || t.date < d ? t.date : d), '')
   };
 }

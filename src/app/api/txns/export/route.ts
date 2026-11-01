@@ -4,6 +4,7 @@ import { db } from '@/lib/server/db';
 import { householdCategories } from '@/lib/server/catdata';
 import { queryTxns, type TxnRow } from '@/lib/server/txnquery';
 import { transactionsCsv, transactionsPdf, type ExportRow, type StatementLink } from '@/lib/server/txnexport';
+import { accountScope } from '@/lib/server/txnscope';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -20,11 +21,14 @@ export async function GET(req: Request) {
   const { m } = await currentMembership(u);
   if (!m) return new Response('Not found', { status: 404 });
   const url = new URL(req.url), p = url.searchParams;
-  const account = await db.account.findFirst({ where: { id: String(p.get('account') || ''), householdId: m.householdId, deletedAt: null, holders: { some: { userId: u.id } } }, select: { id: true, name: true } });
-  if (!account) return new Response('Not found', { status: 404 });
-  const statements = await db.statement.findMany({ where: { accountId: account.id, deletedAt: null }, select: { id: true, periodEnd: true, file: { select: { id: true, name: true } } }, orderBy: { periodEnd: 'asc' } });
+  // one account, or (account=all) every account the person holds
+  const scope = await accountScope(u.id, m.householdId, p.get('account'));
+  if (!scope) return new Response('Not found', { status: 404 });
+  const account = { name: scope.name };
+  const statements = await db.statement.findMany({ where: { accountId: { in: scope.accounts.map((a) => a.id) }, deletedAt: null }, select: { id: true, periodEnd: true, accountId: true, file: { select: { id: true, name: true } } }, orderBy: { periodEnd: 'asc' } });
+  const stAccount = new Map(statements.map((s) => [s.id, s.accountId || '']));
   const txns = await db.txn.findMany({ where: { statementId: { in: statements.map((s) => s.id) } }, select: { id: true, date: true, description: true, debit: true, credit: true, balance: true, category: true, statementId: true, page: true } });
-  const rows: TxnRow[] = txns.map((t) => ({ id: t.id, date: t.date.toISOString().slice(0, 10), description: t.description, debit: Number(t.debit), credit: Number(t.credit), balance: t.balance == null ? null : Number(t.balance), category: t.category, accountId: account.id, statementId: t.statementId }));
+  const rows: TxnRow[] = txns.map((t) => ({ id: t.id, date: t.date.toISOString().slice(0, 10), description: t.description, debit: Number(t.debit), credit: Number(t.credit), balance: t.balance == null ? null : Number(t.balance), category: t.category, accountId: stAccount.get(t.statementId) || '', statementId: t.statementId }));
   const pageOf = new Map(txns.map((t) => [t.id, t.page || 1]));
   const num = (k: string) => { const v = p.get(k); return v == null || v === '' || !isFinite(Number(v)) ? null : Number(v); };
   const isoOr = (v: string | null) => (v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : '');
@@ -40,7 +44,7 @@ export async function GET(req: Request) {
   const fileName = new Map<string, string>();
   for (const s of statements) {
     if (!s.file) continue;
-    let fn = (account.name + ' ' + s.periodEnd.toISOString().slice(0, 10)).replace(/[^\w.\- ]/g, '_') + (/\.csv$/i.test(s.file.name) ? '.csv' : '.pdf');
+    let fn = ((scope.nameOf.get(s.accountId || '') || account.name) + ' ' + s.periodEnd.toISOString().slice(0, 10)).replace(/[^\w.\- ]/g, '_') + (/\.csv$/i.test(s.file.name) ? '.csv' : '.pdf');
     while (used.has(fn)) fn = fn.replace(/(\.\w+)$/, ' (2)$1');
     used.add(fn);
     fileName.set(s.id, fn);
@@ -51,7 +55,7 @@ export async function GET(req: Request) {
     if (!file || !fn) return null;
     return withFiles ? { kind: 'file', target: 'statements/' + fn, page, label: fn.replace(/\.\w+$/, '') } : { kind: 'url', target: origin + '/api/file/' + file.id, page, label: fn.replace(/\.\w+$/, '') };
   };
-  const out: ExportRow[] = r.rows.map((t) => ({ date: t.date, desc: t.description, cat: t.cat, debit: t.debit, credit: t.credit, bal: t.balance, link: linkOf(t.statementId, pageOf.get(t.id) || 1) }));
+  const out: ExportRow[] = r.rows.map((t) => ({ date: t.date, desc: t.description, acct: scope.all ? scope.nameOf.get(t.accountId) || '' : undefined, cat: t.cat, debit: t.debit, credit: t.credit, bal: t.balance, link: linkOf(t.statementId, pageOf.get(t.id) || 1) }));
   const parts = [f.q && 'matching "' + f.q + '"', f.dir === 'in' ? 'money in' : f.dir === 'out' ? 'money out' : '', f.cat === '__auto' ? 'not categorised' : f.cat, f.year && (f.month ? f.month + '/' : '') + f.year, f.from && f.from + ' to ' + (f.to || 'now'), f.min != null && 'from $' + f.min, f.max != null && 'up to $' + f.max].filter(Boolean);
   const info = { account: account.name, filters: parts.length ? 'Filtered: ' + parts.join(', ') : 'All transactions', exported: new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }), sumIn: r.sumIn, sumOut: r.sumOut };
   const stamp = new Date().toISOString().slice(0, 10);

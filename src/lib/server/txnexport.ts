@@ -3,7 +3,7 @@ import { PDFDocument, PDFName, PDFString, StandardFonts, rgb, type PDFFont, type
 
 /** A link to a row's statement: a file beside the export (in the same ZIP), or the statement on the Folio server. */
 export type StatementLink = { kind: 'file' | 'url'; target: string; page: number; label: string };
-export type ExportRow = { date: string; desc: string; cat: string; debit: number; credit: number; bal: number | null; link: StatementLink | null };
+export type ExportRow = { date: string; desc: string; acct?: string; cat: string; debit: number; credit: number; bal: number | null; link: StatementLink | null };
 export type ExportInfo = { account: string; filters: string; exported: string; sumIn: number; sumOut: number };
 
 const money = (n: number) => n.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -19,8 +19,10 @@ export function cell(v: unknown) {
 const linkCell = (l: StatementLink) => '"=HYPERLINK(""' + l.target.replace(/"/g, '') + '"",""' + l.label.replace(/"/g, '') + '"")"';
 
 export function transactionsCsv(rows: ExportRow[]) {
-  const head = ['Date', 'Description', 'Category', 'Money in', 'Money out', 'Balance', 'Statement', 'Page'].join(',');
-  const lines = rows.map((r) => [cell(r.date), cell(r.desc), cell(r.cat), r.credit ? r.credit.toFixed(2) : '', r.debit ? r.debit.toFixed(2) : '', r.bal == null ? '' : r.bal.toFixed(2), r.link ? linkCell(r.link) : '', r.link ? String(r.link.page) : ''].join(','));
+  // across accounts, each row says which account it is from
+  const acct = rows.some((r) => r.acct != null);
+  const head = ['Date', 'Description'].concat(acct ? ['Account'] : [], ['Category', 'Money in', 'Money out', 'Balance', 'Statement', 'Page']).join(',');
+  const lines = rows.map((r) => [cell(r.date), cell(r.desc)].concat(acct ? [cell(r.acct)] : [], [cell(r.cat), r.credit ? r.credit.toFixed(2) : '', r.debit ? r.debit.toFixed(2) : '', r.bal == null ? '' : r.bal.toFixed(2), r.link ? linkCell(r.link) : '', r.link ? String(r.link.page) : '']).join(','));
   return [head].concat(lines).join('\r\n') + '\r\n';
 }
 
@@ -80,7 +82,7 @@ export async function transactionsPdf(rows: ExportRow[], info: ExportInfo) {
   startPage(true);
   for (const r of rows) {
     if (y < M + 6) startPage(false);
-    const cellsTxt = [longDate(r.date), r.desc, r.cat, r.credit ? money(r.credit) : '', r.debit ? money(r.debit) : '', r.bal == null ? '' : money(r.bal)];
+    const cellsTxt = [longDate(r.date), r.acct ? r.desc + ' (' + r.acct + ')' : r.desc, r.cat, r.credit ? money(r.credit) : '', r.debit ? money(r.debit) : '', r.bal == null ? '' : money(r.bal)];
     cellsTxt.forEach((s, i) => {
       const c = cols[i];
       const t = fit(font, plain(font, s), size, c.w);
