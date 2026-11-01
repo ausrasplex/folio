@@ -2,6 +2,8 @@ import JSZip from 'jszip';
 import { currentMembership, currentUser, twoStepBlock } from '@/lib/server/auth';
 import { db } from '@/lib/server/db';
 import { dec } from '@/lib/server/crypto';
+import { categoryOf } from '@/lib/server/categories';
+import { householdCategories } from '@/lib/server/catdata';
 
 export const dynamic = 'force-dynamic';
 const q = (v: unknown) => { const s = v == null ? '' : v instanceof Date ? v.toISOString().slice(0, 10) : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
@@ -35,10 +37,12 @@ export async function GET(req: Request) {
       zip.file(base + '/transactions.csv', csv(['Date', 'Description', 'Debit', 'Credit', 'Balance', 'Rate'], s.statements.flatMap((x) => x.txns).sort((a, b) => +a.date - +b.date).map((t) => [t.date, t.description, t.debit, t.credit, t.balance, t.rate])));
       zip.file(base + '/rates.csv', csv(['From', 'Rate', 'Confirmed', 'Source'], [[l.startDate, s.startRate, true, 'start']].concat(s.rateChanges.filter((r) => !r.deletedAt).map((r) => [r.effectiveDate, r.rate, r.confirmed, r.source]))));
     }
+    // each transaction's category as the app shows it: chosen by hand, else the household's rules, else the built-in guess
+    const { rules } = await householdCategories(m.householdId);
     for (const a of accts) {
       const base = safe(a.name);
       zip.file(base + '/statements.csv', csv(['Start', 'End', 'Opening', 'Closing', 'Money in', 'Money out', 'Status'], a.statements.map((x) => [x.periodStart, x.periodEnd, x.opening, x.closing, x.credits, x.debits, x.status])));
-      zip.file(base + '/transactions.csv', csv(['Date', 'Description', 'Debit', 'Credit', 'Balance', 'Category'], a.statements.flatMap((x) => x.txns).sort((p, q2) => +p.date - +q2.date).map((t) => [t.date, t.description, t.debit, t.credit, t.balance, t.category])));
+      zip.file(base + '/transactions.csv', csv(['Date', 'Description', 'Debit', 'Credit', 'Balance', 'Category'], a.statements.flatMap((x) => x.txns).sort((p, q2) => +p.date - +q2.date).map((t) => [t.date, t.description, t.debit, t.credit, t.balance, categoryOf({ description: t.description, debit: Number(t.debit), credit: Number(t.credit), category: t.category, accountId: a.id }, rules).name])));
     }
   }
   if (withFiles) {
