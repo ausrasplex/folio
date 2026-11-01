@@ -24,8 +24,9 @@ import { statementActions } from './actions/statements';
 import { layoutActions } from './actions/layouts';
 import { serverActions } from './actions/server';
 import { channelActions } from './actions/channels';
+import { categoryActions } from './actions/categories';
 
 export const ACTIONS: Record<string, Action> = {
-  ...userActions, ...householdActions, ...sharedActions, ...loanActions, ...accountActions, ...statementActions, ...layoutActions, ...serverActions, ...channelActions
+  ...userActions, ...householdActions, ...sharedActions, ...loanActions, ...accountActions, ...statementActions, ...layoutActions, ...serverActions, ...channelActions, ...categoryActions
 };
 export { db };

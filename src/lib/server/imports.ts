@@ -2,7 +2,6 @@
 import { Prisma } from '@prisma/client';
 import { db } from './db';
 import { dec } from './crypto';
-import { categorize } from './state';
 import { chargeDay, engineInterest, matchFile, type Read } from './importer';
 import { rateInEffect, tidyRateRepeats } from './rates';
 
@@ -117,7 +116,7 @@ export async function saveImport(o: { fileId: string; destId: string; userId: st
     periodStart: start, periodEnd: end, opening: read.opening, closing: read.closing, interest: read.interest || 0, credits: read.credits || 0, debits: read.debits || 0,
     paymentsInAdvance: read.advance, offsetBenefit: read.offsetBenefit ?? null, rate: read.rate, status, statusNote: note, layoutVersionId: m.version.id, fileId: file.id, pages: read.pages, importedById: o.userId
   } });
-  await db.txn.createMany({ data: fresh.map((t, i) => ({ statementId: st.id, date: new Date(t.date + 'T00:00:00Z'), description: t.description.slice(0, 300), debit: t.debit, credit: t.credit, balance: t.balance, rate: t.rate, page: t.page, row: t.row, y: t.y ?? null, yh: t.yh ?? null, category: dest.kind === 'account' ? categorize(t.description, t.credit) : null, dedupeKey: dest.id + ':' + t.date + ':' + i })) });
+  await db.txn.createMany({ data: fresh.map((t, i) => ({ statementId: st.id, date: new Date(t.date + 'T00:00:00Z'), description: t.description.slice(0, 300), debit: t.debit, credit: t.credit, balance: t.balance, rate: t.rate, page: t.page, row: t.row, y: t.y ?? null, yh: t.yh ?? null, dedupeKey: dest.id + ':' + t.date + ':' + i })) });
   // a new rate shown on a loan statement becomes a rate change to confirm, but only when it is a change: the same
   // rate repeated (for example on each statement's opening line) is not
   if (dest.kind === 'split') {

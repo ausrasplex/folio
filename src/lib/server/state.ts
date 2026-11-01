@@ -7,6 +7,8 @@ import { currentMembership, type CurrentUser } from './auth';
 import { APP_VERSION, backupSettings, dirSize, folderPath, freeSpace } from './backup';
 import { securityRows } from './security';
 import { startRateOffers } from './rates';
+import { BUILT_IN, categoryOf, kindOf } from './categories';
+import { householdCategories } from './catdata';
 import { chargeDay, type Txn } from './importer';
 import { offsetFromStatements, type BenefitStatement } from './offsetest';
 import { DAY, FREQ_WORD, num, summarize, today0, yearFrac, type SplitRow } from './loanmath';
@@ -25,25 +27,7 @@ export const splitInclude = {
   statements: { where: { deletedAt: null }, select: { id: true, periodStart: true, periodEnd: true, closing: true, opening: true, interest: true, credits: true, rate: true, paymentsInAdvance: true, offsetBenefit: true, deletedAt: true } }
 } as const;
 
-export function categorize(desc: string, credit: number) {
-  const d = desc.toLowerCase();
-  if (credit > 0) return /interest/.test(d) ? 'Interest' : 'Income';
-  const rules: [RegExp, string][] = [
-    [/shell|bp |caltex|ampol|7-eleven|fuel|petrol|united petroleum/, 'Fuel'],
-    [/woolworths|coles|aldi|iga|grocer|supermarket|harris farm/, 'Groceries'],
-    [/cafe|coffee|restaurant|uber eats|menulog|doordash|mcdonald|kfc|pizza|bar |pub /, 'Food and dining'],
-    [/bunnings|ikea|kmart|target|big w|officeworks|hardware/, 'Household'],
-    [/myki|opal|uber|didi|taxi|parking|toll|linkt|transport/, 'Transport'],
-    [/energy|electric|gas|water|agl|origin|red energy|alinta/, 'Utilities'],
-    [/insurance|nrma|racv|budget direct|allianz|aami/, 'Insurance'],
-    [/council|rates/, 'Rates'],
-    [/telstra|optus|vodafone|internet|nbn|aussie broadband/, 'Phone and internet'],
-    [/fee|charge/, 'Fees'],
-    [/transfer|tfr|repaymt|repayment/, 'Transfers']
-  ];
-  for (const [re, c] of rules) if (re.test(d)) return c;
-  return 'Other';
-}
+export { categorize } from './categories';
 
 export async function buildState(u: CurrentUser) {
   const { m, all } = await currentMembership(u);
@@ -87,6 +71,10 @@ export async function buildState(u: CurrentUser) {
     return st ? num(st.closing) : num(a.openingBalance);
   };
 
+  // ----- categories: the built-in list and the household's own, and its rules (tried in order)
+  const { own: ownCats, rules } = await householdCategories(hid);
+  const catOf = (t: { description: string; debit: unknown; credit: unknown; category: string | null }, accountId: string) => categoryOf({ description: t.description, debit: num(t.debit as never), credit: num(t.credit as never), category: t.category, accountId }, rules).name;
+
   // ----- accounts
   const now = today0();
   const accounts = acctRows.map((a, i) => {
@@ -105,9 +93,9 @@ export async function buildState(u: CurrentUser) {
     const lastEnd = a.statements.length ? a.statements[a.statements.length - 1].periodEnd : now;
     const since = new Date(+lastEnd - 30 * DAY);
     const cat: Record<string, number> = {};
-    txns.filter((t) => t.date >= since && num(t.debit) > 0).forEach((t) => { const c = t.category || categorize(t.description, 0); if (c === 'Transfers') return; cat[c] = (cat[c] || 0) + num(t.debit); });
+    txns.filter((t) => t.date >= since && num(t.debit) > 0).forEach((t) => { const c = catOf(t, a.id); if (kindOf(c, ownCats) !== 'spend') return; cat[c] = (cat[c] || 0) + num(t.debit); });
     const cats = Object.entries(cat).sort((x, y) => y[1] - x[1]).map(([k, v]) => [k, Math.round(v)]);
-    const recent = txns.slice(-6).reverse().map((t) => [Math.max(0, Math.round((+now - +t.date) / DAY)), t.description, num(t.credit) - num(t.debit), t.category || categorize(t.description, num(t.credit))]);
+    const recent = txns.slice(-6).reverse().map((t) => [Math.max(0, Math.round((+now - +t.date) / DAY)), t.description, num(t.credit) - num(t.debit), catOf(t, a.id)]);
     const holderNames = a.holders.map((h) => h.user.displayName);
     return {
       id: a.id, name: a.name, lenderId: a.lenderId, lender: a.lender.name, purpose: a.type, type: a.type,
@@ -260,7 +248,9 @@ export async function buildState(u: CurrentUser) {
     me: { ...me, securityLog: await securityRows({ userId: u.id }, 50) }, households, household: { id: hid, name: m.household.name }, members, removedMembers, invites,
     lenders, brokers, deletedLenders, deletedBrokers, loans: loans.filter((l) => !l.archived), archivedLoans: loans.filter((l) => l.archived),
     accounts: accounts.filter((a) => !a.closedIso), closedAccounts: accounts.filter((a) => !!a.closedIso), statements, layouts, notifications,
-    settings, channels, server, origin: process.env.FOLIO_URL || ''
+    settings, channels, server, origin: process.env.FOLIO_URL || '',
+    categories: BUILT_IN.map((c) => ({ id: '', name: c.name, kind: c.kind, own: false })).concat(ownCats.map((c) => ({ id: c.id, name: c.name, kind: kindOf(c.name, ownCats), own: true }))),
+    categoryRules: rules.map((r) => ({ ...r, terms: r.terms }))
   };
 }
 

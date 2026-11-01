@@ -99,6 +99,8 @@ model Household {
   lenders     Lender[]
   brokers     Broker[]
   statements  Statement[]
+  categories  Category[]
+  categoryRules CategoryRule[]
   createdAt   DateTime     @default(now())
   deletedAt   DateTime?
 }
@@ -403,7 +405,7 @@ model Txn {
   credit      Decimal   @default(0) @db.Decimal(14, 2)
   balance     Decimal?  @db.Decimal(14, 2)
   rate        Decimal?  @db.Decimal(6, 4) // rate-change lines
-  category    String?
+  category    String? // a category the person chose for this row; otherwise rules and the built-in list decide
   page        Int       @default(1)
   row         Int       @default(0)
   y           Float? // where the row sits on its page, % from the top
@@ -434,4 +436,36 @@ model Backup {
   size      Int
   auto      Boolean  @default(true)
   createdAt DateTime @default(now())
+}
+
+/** A category the household made, alongside the built-in ones. */
+model Category {
+  id          String    @id @default(cuid())
+  household   Household @relation(fields: [householdId], references: [id])
+  householdId String
+  name        String
+  kind        String    @default("spend") // spend | income | transfer (transfers are left out of spending)
+  createdAt   DateTime  @default(now())
+
+  @@unique([householdId, name])
+}
+
+/** Gives matching transactions a category. Rules are tried in order (priority); the first that matches wins. */
+model CategoryRule {
+  id          String    @id @default(cuid())
+  household   Household @relation(fields: [householdId], references: [id])
+  householdId String
+  category    String
+  terms       String    @default("") // words to look for in the description, one per line; any of them matches
+  match       String    @default("contains") // contains | starts | equals | pattern
+  direction   String    @default("any") // any | out (money out) | in (money in)
+  amountMin   Decimal?  @db.Decimal(14, 2)
+  amountMax   Decimal?  @db.Decimal(14, 2)
+  accountId   String? // only this account, or any
+  priority    Int       @default(0)
+  enabled     Boolean   @default(true)
+  createdById String?
+  createdAt   DateTime  @default(now())
+
+  @@index([householdId, priority])
 }
