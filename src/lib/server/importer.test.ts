@@ -33,6 +33,17 @@ describe('readPdf', () => {
     // 41,274.20 + 2,500.00 is 43,774.20, not the 43,000.00 shown
     expect(r.checks.find((c) => /Running balance/.test(c.text))!.text).toContain('22 May INTERNET DEPOSIT: shows $43,000.00, expected $43,774.20');
   });
+  it('accepts a statement with no transactions when the balance did not change', () => {
+    const summary = (closing: string): Page => ({ n: 1, wPt: 595, hPt: 842, text: '', items: [
+      { s: '25/04/2026 to 24/10/2026', x: 1, y: 2, w: 15, h: 1.5, page: 1 }, { s: '1,250.00', x: 10, y: 6, w: 6, h: 1.5, page: 1 }, { s: closing, x: 40, y: 6, w: 6, h: 1.5, page: 1 }
+    ] });
+    const map = { ...accountMap, period: { page: 1, box: [0, 1, 20, 3] }, opening: { page: 1, box: [9, 5, 9, 3] }, closing: { page: 1, box: [39, 5, 9, 3] } };
+    const still = readPdf([summary('1,250.00')], map as never, 'account');
+    expect(still.ok).toBe(true);
+    expect(still.checks.map((c) => c.text)).toContain('No transactions this period, and the balance stayed at $1,250.00');
+    // no transactions but a different closing balance: the table was missed
+    expect(readPdf([summary('1,400.00')], map as never, 'account').ok).toBe(false);
+  });
   it("keeps a loan's opening line when it states the rate", () => {
     const r = readPdf([page(1, [['12 Feb 2025', 'Opening Balance Interest Rate 6.350% PA', '', '', '249,546.10'], ['13 Feb 2025', 'REPAYMT A/C TFR', '', '419.00', '249,127.10']])], accountMap as never, 'loan');
     expect(r.txns.map((t) => t.rate)).toEqual([6.35, null]);

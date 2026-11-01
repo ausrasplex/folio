@@ -245,7 +245,12 @@ function finish(r: Read, kind: string): Read {
       prev = t.balance;
     }
     checks.push({ ok: good === withBal.length, text: good === withBal.length ? 'Running balance agrees on all ' + withBal.length + ' rows' + (r.pages > 1 ? ' across ' + r.pages + ' pages' : '') : 'Running balance agrees on ' + good + ' of ' + withBal.length + ' rows. Check ' + off.join('; ') });
-  } else if (!r.txns.length) checks.push({ ok: false, text: 'No transactions were found in the table' });
+  } else if (!r.txns.length) {
+    // a period with no activity is still a statement: no transactions, and the balance did not move. With no
+    // transactions but a different closing balance, the table was missed.
+    const still = r.opening != null && r.closing != null && Math.abs(r.opening - r.closing) < 0.011;
+    checks.push({ ok: still, text: still ? 'No transactions this period, and the balance stayed at ' + m(r.closing) : 'No transactions were found in the table' });
+  }
   r.checks = checks;
   r.ok = checks.length > 0 && checks.every((c) => c.ok);
   return r;
