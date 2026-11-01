@@ -1,5 +1,35 @@
 import { describe, expect, it } from 'vitest';
-import { datesIn, moneyIn, parseCsv, rateIn, readCsv } from './importer';
+import { datesIn, moneyIn, parseCsv, rateIn, readCsv, readPdf, type Item, type Page } from './importer';
+
+// a two-page account statement table: date, description, debit, credit and balance columns
+const COLS = { date: 6, desc: 20, debit: 60, credit: 72, balance: 85 };
+function page(n: number, rows: [string, string, string, string, string][]): Page {
+  const items: Item[] = [];
+  rows.forEach((r, i) => (['date', 'desc', 'debit', 'credit', 'balance'] as const).forEach((k, j) => { if (r[j]) items.push({ s: r[j], x: COLS[k], y: 20 + i * 3, w: 4, h: 1.5, page: n }); }));
+  return { n, items, text: items.map((x) => x.s).join(' '), wPt: 595, hPt: 842 };
+}
+const col = (x: number, w: number) => ({ page: 1, box: [x - 1, 15, w, 80] });
+const accountMap = { table: { page: 1, box: [2, 15, 96, 80] }, cDate: col(6, 10), cDesc: col(20, 35), cDebit: col(60, 10), cCredit: col(72, 10), cBal: col(85, 12) };
+
+describe('readPdf', () => {
+  it("skips a page's sub total carried forward, at its foot and at the top of the next page", () => {
+    const pages = [
+      page(1, [['14 May 2026', 'LOAN REPAYMENT', '404.00', '', '41,678.20'], ['14 May 2026', 'STSolarVic', '29.17', '', '41,649.03'], ['', 'SUB TOTAL CARRIED FORWARD TO NEXT PAGE', '', '', '41,649.03']]),
+      page(2, [['', 'SUB TOTAL CARRIED FORWARD FROM PREVIOUS PAGE', '', '', '41,649.03'], ['14 May 2026', 'SUPERLOOP', '95.00', '', '41,554.03'], ['31 May 2026', 'CLOSING BALANCE', '', '', '41,554.03']])
+    ];
+    const r = readPdf(pages, accountMap as never, 'account');
+    expect(r.txns.map((t) => t.description)).toEqual(['LOAN REPAYMENT', 'STSolarVic', 'SUPERLOOP']);
+    expect(r.debits).toBe(528.17);
+  });
+  it("keeps a loan's opening line when it states the rate", () => {
+    const r = readPdf([page(1, [['12 Feb 2025', 'Opening Balance Interest Rate 6.350% PA', '', '', '249,546.10'], ['13 Feb 2025', 'REPAYMT A/C TFR', '', '419.00', '249,127.10']])], accountMap as never, 'loan');
+    expect(r.txns.map((t) => t.rate)).toEqual([6.35, null]);
+  });
+  it('keeps an opening line whose rate wraps onto the next line', () => {
+    const r = readPdf([page(1, [['12 Feb 2025', 'Opening Balance', '', '', '249,546.10'], ['', 'Interest Rate 6.350% PA', '', '', ''], ['13 Feb 2025', 'REPAYMT A/C TFR', '', '419.00', '249,127.10']])], accountMap as never, 'loan');
+    expect(r.txns.map((t) => t.rate)).toEqual([6.35, null]);
+  });
+});
 
 describe('moneyIn', () => {
   it('reads plain, comma and signed amounts', () => {

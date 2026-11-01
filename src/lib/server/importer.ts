@@ -150,6 +150,11 @@ export function offsetBenefitIn(pages: Page[]): number | null {
   return null;
 }
 
+/** A line that only carries a balance: a page's sub total carried forward (or brought forward from the last page), or
+ *  the opening or closing balance. Not a transaction, unless it moves money or states a rate (a loan's opening rate line). */
+export const BALANCE_LINE = /\b(sub\s*-?\s*total|carried\s+forward|brought\s+forward|balance\s+(brought|carried)|opening\s+balance|closing\s+balance|[bc]\/f)\b/i;
+const balanceOnly = (desc: string, debit: number, credit: number) => BALANCE_LINE.test(desc) && !debit && !credit && rateIn(desc) == null;
+
 export function readPdf(pages: Page[], map: PdfMap, kind: string): Read {
   const f = (k: string) => textIn(pages, map[k]);
   const pd = datesIn(f('period'));
@@ -169,6 +174,8 @@ export function readPdf(pages: Page[], map: PdfMap, kind: string): Read {
         if (ds.length) {
           const debit = Math.abs(moneyIn(deb) ?? 0), credit = Math.abs(moneyIn(cre) ?? 0), b = moneyIn(bal);
           txns.push({ date: ds[0], description: desc, debit: r2(debit), credit: r2(credit), balance: b == null ? null : r2(Math.abs(b)), rate: /rate/i.test(desc) ? rateIn(desc) : null, page: p.n, row: row++, y: Math.round(Math.min(...ln.map((it) => it.y)) * 100) / 100, yh: Math.round(Math.max(...ln.map((it) => it.h)) * 100) / 100 });
+        } else if (BALANCE_LINE.test(desc) && !rateIn(desc)) {
+          continue; // an undated sub total or carried-forward line: not part of the transaction above
         } else if (txns.length && desc && !deb && !cre && !/^(date|description|transaction|details)/i.test(desc)) {
           txns[txns.length - 1].description += ' ' + desc; // wrapped line
           if (/rate/i.test(desc) && txns[txns.length - 1].rate == null) txns[txns.length - 1].rate = rateIn(desc);
@@ -176,6 +183,8 @@ export function readPdf(pages: Page[], map: PdfMap, kind: string): Read {
       }
     }
   }
+  // balance lines are dropped once any wrapped text has joined them (a loan's opening line can carry its rate on the next line)
+  for (let i = txns.length - 1; i >= 0; i--) if (balanceOnly(txns[i].description, txns[i].debit, txns[i].credit)) txns.splice(i, 1);
   const num = (k: string) => { const v = moneyIn(f(k)); return v == null ? null : Math.abs(v); };
   const r: Read = {
     format: 'PDF', pages: pages.length, period: pd.length >= 2 ? { start: pd[0], end: pd[1] } : null,
@@ -245,6 +254,7 @@ export function readCsv(rows: string[][], map: CsvMap, kind: string): Read {
     if (idx('amount') >= 0) { const a = moneyIn(r[idx('amount')] || '') ?? 0; if (a < 0) debit = -a; else credit = a; }
     else { debit = Math.abs(moneyIn(r[idx('debit')] || '') ?? 0); credit = Math.abs(moneyIn(r[idx('credit')] || '') ?? 0); }
     const b = idx('balance') >= 0 ? moneyIn(r[idx('balance')] || '') : null;
+    if (balanceOnly(idx('desc') >= 0 ? r[idx('desc')] : '', debit, credit)) return;
     txns.push({ date: ds[0], description: idx('desc') >= 0 ? r[idx('desc')] : '', debit: r2(debit), credit: r2(credit), balance: b, rate: null, page: 1, row: i });
   });
   // newest-first exports are turned around so the running balance reads forwards
