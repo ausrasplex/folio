@@ -188,7 +188,7 @@ class Screen extends DCBase {
     const discardSample = (ed) => { if (ed && ed.fileId && ed.uploaded) this.act('importDiscard', { ids: [ed.fileId] }, { reload: false }).catch(() => {}); };
     const startEditor = (mode, l, file) => {
       const smp = file || (l ? this.sampleFor(l) : null);
-      const base = { lender: l ? lenderByName(l.lenderName).id || null : null, lenderName: l ? l.lenderName : null, kind: l ? l.kind : null, map: l ? JSON.parse(JSON.stringify(l.map || {})) : {}, cols: l ? (l.cols || []).slice() : [], name: l ? l.name : '', dateFmt: l ? l.dateFmt : 'dmy', phrases: l && l.phrases ? l.phrases.join('\n') : '' };
+      const base = { lender: l ? lenderByName(l.lenderName).id || null : null, lenderName: l ? l.lenderName : null, kind: l ? l.kind : null, map: l ? JSON.parse(JSON.stringify(l.map || {})) : {}, cols: l ? (l.cols || []).slice() : [], name: l ? l.name : null, dateFmt: l ? l.dateFmt : 'dmy', phrases: l && l.phrases ? l.phrases.join('\n') : '' };
       const fileBits = smp ? { file: smp.csv ? 'csv' : 'pdf', fileId: smp.id, fileName: smp.name, uploaded: !!smp.uploaded } : { file: null, fileId: null };
       this.setState({ vfs: false, efs: false, view: 'edit', ed: Object.assign({ mode, id: l ? l.id : null }, base, fileBits), step: mode === 'remap' && smp ? 1 : 0, maxStep: mode === 'remap' && smp ? 2 : 0, tried: {}, cur: null, drag: null, epg: 1, ePages: null, cancelAsk: false, test: null });
     };
@@ -401,7 +401,8 @@ class Screen extends DCBase {
         nwHint: nwDup ? 'A lender with this name already exists' : '', nwBad, nwCancel: () => this.setState({ nw: null }),
         nwSave: async () => { if (nwBad) return; const r = await this.run('addLender', { name: nw.name.trim(), website: nw.web, phone: nw.phone }); if (r) this.setState({ nw: null, pick: null, ed: Object.assign({}, ed, { lender: r.id }) }); }
       };
-      if (step === 2 && !ed.name) { const nm = (kind === 'loan' ? 'Home loan statement' : 'Account statement') + (isCsv ? ' (CSV)' : ''); setTimeout(() => { if ((this.state || {}).ed && !(this.state.ed.name)) this.setState({ ed: Object.assign({}, this.state.ed, { name: nm }) }); }, 0); }
+      // a default name only until one is typed or cleared: an emptied name stays empty
+      if (step === 2 && ed.name == null) { const nm = (kind === 'loan' ? 'Home loan statement' : 'Account statement') + (isCsv ? ' (CSV)' : ''); setTimeout(() => { if ((this.state || {}).ed && this.state.ed.name == null) this.setState({ ed: Object.assign({}, this.state.ed, { name: nm }) }); }, 0); }
     }
     return Object.assign(this.baseVals(), {
       isEmpty: empty || !lays.length, addPulse: empty || !lays.length ? 'addpulse' : '',

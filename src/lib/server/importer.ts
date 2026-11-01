@@ -155,6 +155,19 @@ export function offsetBenefitIn(pages: Page[]): number | null {
 export const BALANCE_LINE = /\b(sub\s*-?\s*total|carried\s+forward|brought\s+forward|balance\s+(brought|carried)|opening\s+balance|closing\s+balance|[bc]\/f)\b/i;
 const balanceOnly = (desc: string, debit: number, credit: number) => BALANCE_LINE.test(desc) && !debit && !credit && rateIn(desc) == null;
 
+/** Some PDFs hold a row's date and description as one piece of text starting in the Date column ("21 MAY LOAN
+ *  REPAYMENT"). Such a piece is split at the end of the date, its parts placed in proportion to their length. */
+const LEADING_DATE = /^(\d{1,2}(?:[ \/.-](?:[A-Za-z]{3,9}|\d{1,2}))(?:[ \/.-]\d{2,4})?)\s+(\S.*)$/;
+function splitDates(items: Item[], dateCol: Box): Item[] {
+  const [x0, , w0] = dateCol.box;
+  return items.flatMap((it) => {
+    const m = it.s.match(LEADING_DATE);
+    if (!m || it.x < x0 - 1 || it.x > x0 + w0 || it.x + it.w <= x0 + w0 || !datesIn(m[1] + ' 2000').length) return [it];
+    const cut = it.w * (m[1].length + 1) / it.s.length;
+    return [{ ...it, s: m[1], w: it.w * m[1].length / it.s.length }, { ...it, s: m[2], x: it.x + cut, w: it.w - cut }];
+  });
+}
+
 export function readPdf(pages: Page[], map: PdfMap, kind: string): Read {
   const f = (k: string) => textIn(pages, map[k]);
   const pd = datesIn(f('period'));
@@ -165,7 +178,7 @@ export function readPdf(pages: Page[], map: PdfMap, kind: string): Read {
     for (const p of pages.filter((x) => x.n >= tb.page)) {
       // on continuation pages the table runs from near the top, so widen the box upwards and downwards
       const box = p.n === tb.page ? tb.box : [tb.box[0], 3, tb.box[2], 94];
-      const its = p.items.filter((it) => inBox(it, box));
+      const its = splitDates(p.items.filter((it) => inBox(it, box)), cols[0]!);
       let row = 0;
       for (const ln of lines(its)) {
         const col = (c: Box | undefined) => c ? ln.filter((it) => { const cx = it.x + it.w / 2; return cx >= c.box[0] && cx <= c.box[0] + c.box[2]; }).map((it) => it.s).join(' ').trim() : '';
@@ -223,8 +236,15 @@ function finish(r: Read, kind: string): Read {
   if (withBal.length && r.opening != null) {
     let prev = r.opening, good = 0;
     const sign = kind === 'loan' ? 1 : -1;
-    for (const t of r.txns) { if (t.balance == null) continue; const exp = r2(prev + sign * (t.debit - t.credit)); if (Math.abs(exp - t.balance) < 0.011 || (t.debit === 0 && t.credit === 0)) good++; prev = t.balance; }
-    checks.push({ ok: good === withBal.length, text: good === withBal.length ? 'Running balance agrees on all ' + withBal.length + ' rows' + (r.pages > 1 ? ' across ' + r.pages + ' pages' : '') : 'Running balance agrees on ' + good + ' of ' + withBal.length + ' rows' });
+    const off: string[] = []; // the first rows that do not agree, to say where to look
+    for (const t of r.txns) {
+      if (t.balance == null) continue;
+      const exp = r2(prev + sign * (t.debit - t.credit));
+      if (Math.abs(exp - t.balance) < 0.011 || (t.debit === 0 && t.credit === 0)) good++;
+      else if (off.length < 2) off.push(new Date(t.date + 'T00:00:00Z').toLocaleDateString('en-AU', { day: 'numeric', month: 'short', timeZone: 'UTC' }) + ' ' + (t.description.slice(0, 40) || 'row') + (r.pages > 1 ? ' (page ' + t.page + ')' : '') + ': shows ' + m(t.balance) + ', expected ' + m(exp));
+      prev = t.balance;
+    }
+    checks.push({ ok: good === withBal.length, text: good === withBal.length ? 'Running balance agrees on all ' + withBal.length + ' rows' + (r.pages > 1 ? ' across ' + r.pages + ' pages' : '') : 'Running balance agrees on ' + good + ' of ' + withBal.length + ' rows. Check ' + off.join('; ') });
   } else if (!r.txns.length) checks.push({ ok: false, text: 'No transactions were found in the table' });
   r.checks = checks;
   r.ok = checks.length > 0 && checks.every((c) => c.ok);

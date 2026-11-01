@@ -21,6 +21,18 @@ describe('readPdf', () => {
     expect(r.txns.map((t) => t.description)).toEqual(['LOAN REPAYMENT', 'STSolarVic', 'SUPERLOOP']);
     expect(r.debits).toBe(528.17);
   });
+  it('splits a date and description held as one piece of text, and names a row that does not agree', () => {
+    // from page 2 some PDFs hold "21 MAY LOAN REPAYMENT" as one piece, starting in the Date column
+    const p: Page = { n: 1, wPt: 595, hPt: 842, text: '', items: [
+      { s: '25/04/2026 to 24/10/2026', x: 1, y: 2, w: 15, h: 1.5, page: 1 },
+      { s: '21 MAY LOAN REPAYMENT', x: 6, y: 20, w: 20, h: 1.5, page: 1 }, { s: '404.00', x: 60, y: 20, w: 4, h: 1.5, page: 1 }, { s: '41,274.20', x: 85, y: 20, w: 6, h: 1.5, page: 1 },
+      { s: '22 MAY INTERNET DEPOSIT', x: 6, y: 23, w: 21, h: 1.5, page: 1 }, { s: '2,500.00', x: 72, y: 23, w: 5, h: 1.5, page: 1 }, { s: '43,000.00', x: 85, y: 23, w: 6, h: 1.5, page: 1 }
+    ] };
+    const r = readPdf([p], { ...accountMap, period: { page: 1, box: [0, 1, 20, 3] } } as never, 'account');
+    expect(r.txns.map((t) => [t.date.slice(5), t.description])).toEqual([['05-21', 'LOAN REPAYMENT'], ['05-22', 'INTERNET DEPOSIT']]);
+    // 41,274.20 + 2,500.00 is 43,774.20, not the 43,000.00 shown
+    expect(r.checks.find((c) => /Running balance/.test(c.text))!.text).toContain('22 May INTERNET DEPOSIT: shows $43,000.00, expected $43,774.20');
+  });
   it("keeps a loan's opening line when it states the rate", () => {
     const r = readPdf([page(1, [['12 Feb 2025', 'Opening Balance Interest Rate 6.350% PA', '', '', '249,546.10'], ['13 Feb 2025', 'REPAYMT A/C TFR', '', '419.00', '249,127.10']])], accountMap as never, 'loan');
     expect(r.txns.map((t) => t.rate)).toEqual([6.35, null]);
