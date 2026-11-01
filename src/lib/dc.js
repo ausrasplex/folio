@@ -309,3 +309,17 @@ export function PdfPage({ src, page, width, onPages, children, onSize }) {
     React.createElement('canvas', { ref, style: { display: 'block', borderRadius: 4 } }),
     size ? (typeof children === 'function' ? children(size) : children) : null);
 }
+
+/** Category chip colours: light shades with dark text, which read on light and dark themes alike. */
+export const CAT_SHADES = {
+  grey: '#e4e4e7', red: '#fecaca', orange: '#fed7aa', amber: '#fde68a', yellow: '#fef08a', lime: '#d9f99d', green: '#bbf7d0',
+  teal: '#99f6e4', sky: '#bae6fd', blue: '#bfdbfe', indigo: '#c7d2fe', violet: '#ddd6fe', pink: '#fbcfe8', rose: '#fecdd3'
+};
+export const CAT_COLOR_NAMES = { grey: 'Grey', red: 'Red', orange: 'Orange', amber: 'Amber', yellow: 'Yellow', lime: 'Lime', green: 'Green', teal: 'Teal', sky: 'Sky', blue: 'Blue', indigo: 'Indigo', violet: 'Violet', pink: 'Pink', rose: 'Rose' };
+/** A category's colour from the state's category list (grey when it is not there). */
+export function catColor(data, name) {
+  const c = ((data && data.categories) || []).find((x) => x.name === name);
+  return (c && CAT_SHADES[c.color]) ? c.color : 'grey';
+}
+/** Inline style for a category chip in its colour. */
+export const catChip = (key) => 'background:' + (CAT_SHADES[key] || CAT_SHADES.grey) + ';color:#1f1f23';

@@ -445,6 +445,8 @@ model Category {
   householdId String
   name        String
   kind        String    @default("spend") // spend | income | transfer (transfers are left out of spending)
+  color       String? // a palette name (green, sky ...); none: the default for its name
+  builtIn     Boolean   @default(false) // only a colour for a built-in category, not a category of its own
   createdAt   DateTime  @default(now())
 
   @@unique([householdId, name])

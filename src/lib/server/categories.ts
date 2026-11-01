@@ -77,3 +77,19 @@ export function kindOf(name: string, own: { name: string; kind: string }[]): Cat
   const k = own.find((c) => c.name === name)?.kind || BUILT_IN.find((c) => c.name === name)?.kind || 'spend';
   return k === 'income' || k === 'transfer' ? k : 'spend';
 }
+
+/** The colours a category chip can have (names; the screens hold the shades, which read in light and dark themes). */
+export const COLORS = ['grey', 'red', 'orange', 'amber', 'yellow', 'lime', 'green', 'teal', 'sky', 'blue', 'indigo', 'violet', 'pink', 'rose'] as const;
+const DEFAULT_COLOR: Record<string, string> = {
+  Groceries: 'green', 'Food and dining': 'orange', Fuel: 'amber', Household: 'teal', Transport: 'sky', Utilities: 'yellow', Insurance: 'indigo',
+  Rates: 'violet', 'Phone and internet': 'blue', Fees: 'red', Other: 'grey', Income: 'lime', Interest: 'lime', Transfers: 'pink'
+};
+/** A category's colour: the one chosen for it, else its built-in default, else one picked from its name. */
+export function colorOf(name: string, chosen: Record<string, string | null | undefined>) {
+  const c = chosen[name];
+  if (c && (COLORS as readonly string[]).includes(c)) return c;
+  if (DEFAULT_COLOR[name]) return DEFAULT_COLOR[name];
+  let h = 0;
+  for (const ch of name) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return COLORS[1 + (h % (COLORS.length - 1))]; // not grey, which reads as "nothing chosen"
+}

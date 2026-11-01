@@ -39,3 +39,16 @@ describe('a transaction category', () => {
     expect(kindOf('Side income', [{ name: 'Side income', kind: 'income' }])).toBe('income');
   });
 });
+
+describe('category colours', () => {
+  it('uses the colour chosen, else the built-in default, else one picked from the name (never grey)', async () => {
+    const { colorOf, COLORS } = await import('./categories');
+    expect(colorOf('Groceries', {})).toBe('green');
+    expect(colorOf('Groceries', { Groceries: 'pink' })).toBe('pink');
+    expect(colorOf('Groceries', { Groceries: 'not-a-colour' })).toBe('green');
+    const picked = colorOf('Holidays', {});
+    expect(COLORS).toContain(picked);
+    expect(picked).not.toBe('grey');
+    expect(colorOf('Holidays', {})).toBe(picked); // the same every time
+  });
+});

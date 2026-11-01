@@ -1,6 +1,6 @@
 // Categories and category rules (shared in the household), and choosing a transaction's category.
 import { type Action, type Ctx, canEdit, db, hh, need, str } from '../actions';
-import { BUILT_IN, categoryOf, ordered, ruleMatches, type RuleRow } from '../categories';
+import { BUILT_IN, COLORS, categoryOf, ordered, ruleMatches, type RuleRow } from '../categories';
 import { householdCategories } from '../catdata';
 
 const MATCHES = ['contains', 'starts', 'equals', 'pattern'];
@@ -11,7 +11,7 @@ const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLow
 /** A category name that exists: built in, or one of the household's. */
 async function knownCategory(c: Ctx, name: unknown) {
   const n = str(name, 40).trim();
-  const own = await db.category.findMany({ where: { householdId: hh(c) }, select: { name: true } });
+  const own = await db.category.findMany({ where: { householdId: hh(c), builtIn: false }, select: { name: true } });
   const hit = BUILT_IN.find((b) => same(b.name, n))?.name || own.find((o) => same(o.name, n))?.name;
   need(hit, 'Choose a category.');
   return hit!;
@@ -42,13 +42,14 @@ export const categoryActions: Record<string, Action> = {
     need(!BUILT_IN.some((b) => same(b.name, name)), name + ' is already a built-in category.');
     const kind = KINDS.includes(str(c.p.kind)) ? str(c.p.kind) : 'spend';
     const id = str(c.p.id);
-    const clash = await db.category.findFirst({ where: { householdId: hh(c), name: { equals: name, mode: 'insensitive' }, ...(id ? { id: { not: id } } : {}) } });
+    const color = (COLORS as readonly string[]).includes(str(c.p.color)) ? str(c.p.color) : undefined;
+    const clash = await db.category.findFirst({ where: { householdId: hh(c), builtIn: false, name: { equals: name, mode: 'insensitive' }, ...(id ? { id: { not: id } } : {}) } });
     need(!clash, 'There is already a category called ' + name + '.');
-    if (!id) return { id: (await db.category.create({ data: { householdId: hh(c), name, kind } })).id };
-    const old = await db.category.findFirst({ where: { id, householdId: hh(c) } });
+    if (!id) return { id: (await db.category.create({ data: { householdId: hh(c), name, kind, color } })).id };
+    const old = await db.category.findFirst({ where: { id, householdId: hh(c), builtIn: false } });
     need(old, 'That category is not in your household.');
     await db.$transaction([
-      db.category.update({ where: { id: old!.id }, data: { name, kind } }),
+      db.category.update({ where: { id: old!.id }, data: { name, kind, ...(color ? { color } : {}) } }),
       db.categoryRule.updateMany({ where: { householdId: hh(c), category: old!.name }, data: { category: name } }),
       db.txn.updateMany({ where: { category: old!.name, statement: { householdId: hh(c) } }, data: { category: name } })
     ]);
@@ -57,7 +58,7 @@ export const categoryActions: Record<string, Action> = {
   /** Deletes one of the household's categories, with its rules. Transactions given it go back to rules and the built-in list. */
   categoryDelete: async (c) => {
     canEdit(c);
-    const cat = await db.category.findFirst({ where: { id: str(c.p.id), householdId: hh(c) } });
+    const cat = await db.category.findFirst({ where: { id: str(c.p.id), householdId: hh(c), builtIn: false } });
     need(cat, 'That category is not in your household.');
     const [rules, txns] = await db.$transaction([
       db.categoryRule.deleteMany({ where: { householdId: hh(c), category: cat!.name } }),
@@ -65,6 +66,22 @@ export const categoryActions: Record<string, Action> = {
       db.category.delete({ where: { id: cat!.id } })
     ]);
     return { rules: rules.count, txns: txns.count };
+  },
+  /** Sets a category's chip colour: one of the household's own, or a built-in one (kept as a colour-only row). */
+  categoryColor: async (c) => {
+    canEdit(c);
+    const color = str(c.p.color);
+    need((COLORS as readonly string[]).includes(color), 'Choose a colour.');
+    const name = str(c.p.name, 40).trim();
+    const built = BUILT_IN.find((b) => same(b.name, name));
+    if (built) {
+      const row = await db.category.findFirst({ where: { householdId: hh(c), name: built.name } });
+      if (row) await db.category.update({ where: { id: row.id }, data: { color } });
+      else await db.category.create({ data: { householdId: hh(c), name: built.name, kind: built.kind, color, builtIn: true } });
+      return;
+    }
+    const r = await db.category.updateMany({ where: { householdId: hh(c), builtIn: false, name }, data: { color } });
+    need(r.count, 'That category is not in your household.');
   },
   /** Adds a rule (tried after the others) or changes one. */
   ruleSave: async (c) => {

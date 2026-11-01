@@ -7,7 +7,7 @@ import { currentMembership, type CurrentUser } from './auth';
 import { APP_VERSION, backupSettings, dirSize, folderPath, freeSpace } from './backup';
 import { securityRows } from './security';
 import { startRateOffers } from './rates';
-import { BUILT_IN, categoryOf, kindOf } from './categories';
+import { BUILT_IN, categoryOf, colorOf, kindOf } from './categories';
 import { householdCategories } from './catdata';
 import { chargeDay, type Txn } from './importer';
 import { offsetFromStatements, type BenefitStatement } from './offsetest';
@@ -72,7 +72,7 @@ export async function buildState(u: CurrentUser) {
   };
 
   // ----- categories: the built-in list and the household's own, and its rules (tried in order)
-  const { own: ownCats, rules } = await householdCategories(hid);
+  const { own: ownCats, rules, colors: catColors } = await householdCategories(hid);
   const catOf = (t: { description: string; debit: unknown; credit: unknown; category: string | null }, accountId: string) => categoryOf({ description: t.description, debit: num(t.debit as never), credit: num(t.credit as never), category: t.category, accountId }, rules).name;
 
   // ----- accounts
@@ -249,7 +249,7 @@ export async function buildState(u: CurrentUser) {
     lenders, brokers, deletedLenders, deletedBrokers, loans: loans.filter((l) => !l.archived), archivedLoans: loans.filter((l) => l.archived),
     accounts: accounts.filter((a) => !a.closedIso), closedAccounts: accounts.filter((a) => !!a.closedIso), statements, layouts, notifications,
     settings, channels, server, origin: process.env.FOLIO_URL || '',
-    categories: BUILT_IN.map((c) => ({ id: '', name: c.name, kind: c.kind, own: false })).concat(ownCats.map((c) => ({ id: c.id, name: c.name, kind: kindOf(c.name, ownCats), own: true }))),
+    categories: BUILT_IN.map((c) => ({ id: '', name: c.name, kind: c.kind, own: false, color: colorOf(c.name, catColors) })).concat(ownCats.map((c) => ({ id: c.id, name: c.name, kind: kindOf(c.name, ownCats), own: true, color: colorOf(c.name, catColors) }))),
     categoryRules: rules.map((r) => ({ ...r, terms: r.terms }))
   };
 }
