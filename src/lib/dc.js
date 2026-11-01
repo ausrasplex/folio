@@ -323,3 +323,11 @@ export function catColor(data, name) {
 }
 /** Inline style for a category chip in its colour. */
 export const catChip = (key) => 'background:' + (CAT_SHADES[key] || CAT_SHADES.grey) + ';color:#1f1f23';
+
+/** Chart mark colours for the same category colours: a deeper shade on light themes and a lighter one on dark, each
+ *  checked for lightness and 3:1 contrast against its surface (grey is the neutral "Others"). */
+const CAT_MARKS = {
+  light: { grey: '#71717a', red: '#dc2626', orange: '#ea580c', amber: '#c2410c', yellow: '#a16207', lime: '#4d7c0f', green: '#15803d', teal: '#0d9488', sky: '#0369a1', blue: '#2563eb', indigo: '#4f46e5', violet: '#7c3aed', pink: '#db2777', rose: '#be123c' },
+  dark: { grey: '#71717a', red: '#ef4444', orange: '#ea580c', amber: '#d97706', yellow: '#b8860b', lime: '#65a30d', green: '#16a34a', teal: '#0d9488', sky: '#0284c7', blue: '#3b82f6', indigo: '#6366f1', violet: '#8b5cf6', pink: '#ec4899', rose: '#f43f5e' }
+};
+export const catMark = (key, dark) => (dark ? CAT_MARKS.dark : CAT_MARKS.light)[key] || CAT_MARKS.light.grey;

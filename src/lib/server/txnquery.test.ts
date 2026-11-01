@@ -48,3 +48,11 @@ describe('transactions not categorised yet', () => {
     expect(queryTxns(rows, rules, own, {}).uncategorised).toBe(4);
   });
 });
+
+describe('spending month by month, and every category', () => {
+  it('sums spending per month and category, and lists every category with activity', () => {
+    const r = queryTxns(rows, rules, own, {});
+    expect(r.byMonth).toEqual({ '2025-10': { Groceries: 82.1, Software: 14.29 }, '2026-01': { Groceries: 40, Bills: 95 } });
+    expect(r.byCatAll.map((c) => [c.name, c.kind, c.out, c.in, c.n])).toEqual([['Income', 'income', 0, 4709.9, 1], ['Transfers', 'transfer', 400, 0, 1], ['Groceries', 'spend', 122.1, 0, 2], ['Bills', 'spend', 95, 0, 1], ['Software', 'spend', 14.29, 0, 1]]);
+  });
+});

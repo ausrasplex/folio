@@ -28,11 +28,26 @@ export function queryTxns(rows: TxnRow[], rules: RuleRow[], own: { name: string;
   const r2 = (n: number) => Math.round(n * 100) / 100;
   // spending by category over the matching rows (money out, leaving out income and transfers)
   const byCat: Record<string, number> = {};
-  for (const t of hit) if (t.debit > 0 && kindOf(t.cat, own) === 'spend') byCat[t.cat] = r2((byCat[t.cat] || 0) + t.debit);
+  // and month by month (YYYY-MM), for the Spending by Month chart
+  const byMonth: Record<string, Record<string, number>> = {};
+  // every category with activity: money out and in, and how many transactions
+  const all2: Record<string, { name: string; kind: string; out: number; in: number; n: number }> = {};
+  for (const t of hit) {
+    const kind = kindOf(t.cat, own);
+    if (t.debit > 0 && kind === 'spend') {
+      byCat[t.cat] = r2((byCat[t.cat] || 0) + t.debit);
+      const m = (byMonth[t.date.slice(0, 7)] = byMonth[t.date.slice(0, 7)] || {});
+      m[t.cat] = r2((m[t.cat] || 0) + t.debit);
+    }
+    const a = (all2[t.cat] = all2[t.cat] || { name: t.cat, kind, out: 0, in: 0, n: 0 });
+    a.out = r2(a.out + t.debit); a.in = r2(a.in + t.credit); a.n++;
+  }
   return {
     rows: hit, total: hit.length,
     sumIn: r2(hit.reduce((s, t) => s + t.credit, 0)), sumOut: r2(hit.reduce((s, t) => s + t.debit, 0)),
     byCat: Object.entries(byCat).sort((a, b) => b[1] - a[1]),
+    byMonth,
+    byCatAll: Object.values(all2).sort((a, b) => b.out + b.in - (a.out + a.in)),
     years: [...new Set(all.map((t) => t.date.slice(0, 4)))].sort().reverse(),
     cats: [...new Set(all.map((t) => t.cat))].sort(),
     uncategorised: all.filter((t) => t.catBy === 'auto').length
