@@ -4,6 +4,9 @@ import { categoryOf, kindOf, type RuleRow } from './categories';
 export type TxnRow = { id: string; date: string; description: string; debit: number; credit: number; balance: number | null; category: string | null; accountId: string; statementId: string };
 export type TxnFilter = { q?: string; dir?: 'in' | 'out' | ''; year?: string; month?: string; from?: string; to?: string; cat?: string; min?: number | null; max?: number | null };
 
+/** The category filter value for transactions not categorised yet. */
+export const UNCATEGORISED = '__auto';
+
 /** Rows with their category worked out, filtered, newest first; with totals and what each filter can offer. */
 export function queryTxns(rows: TxnRow[], rules: RuleRow[], own: { name: string; kind: string }[], f: TxnFilter) {
   const all = rows.map((t) => { const c = categoryOf(t, rules); return { ...t, cat: c.name, catBy: c.by, ruleId: c.ruleId || null }; });
@@ -14,7 +17,8 @@ export function queryTxns(rows: TxnRow[], rules: RuleRow[], own: { name: string;
     if (f.dir === 'in' && !(t.credit > 0)) return false;
     if (f.dir === 'out' && !(t.debit > 0)) return false;
     if (!inPeriod(t)) return false;
-    if (f.cat && t.cat !== f.cat) return false;
+    // __auto: not categorised yet (only the built-in suggestion: nothing chosen and no rule)
+    if (f.cat === UNCATEGORISED ? t.catBy !== 'auto' : f.cat && t.cat !== f.cat) return false;
     const amount = t.debit || t.credit;
     if (f.min != null && amount < f.min - 0.001) return false;
     if (f.max != null && amount > f.max + 0.001) return false;
@@ -30,6 +34,7 @@ export function queryTxns(rows: TxnRow[], rules: RuleRow[], own: { name: string;
     sumIn: r2(hit.reduce((s, t) => s + t.credit, 0)), sumOut: r2(hit.reduce((s, t) => s + t.debit, 0)),
     byCat: Object.entries(byCat).sort((a, b) => b[1] - a[1]),
     years: [...new Set(all.map((t) => t.date.slice(0, 4)))].sort().reverse(),
-    cats: [...new Set(all.map((t) => t.cat))].sort()
+    cats: [...new Set(all.map((t) => t.cat))].sort(),
+    uncategorised: all.filter((t) => t.catBy === 'auto').length
   };
 }

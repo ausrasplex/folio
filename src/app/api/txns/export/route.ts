@@ -52,7 +52,7 @@ export async function GET(req: Request) {
     return withFiles ? { kind: 'file', target: 'statements/' + fn, page, label: fn.replace(/\.\w+$/, '') } : { kind: 'url', target: origin + '/api/file/' + file.id, page, label: fn.replace(/\.\w+$/, '') };
   };
   const out: ExportRow[] = r.rows.map((t) => ({ date: t.date, desc: t.description, cat: t.cat, debit: t.debit, credit: t.credit, bal: t.balance, link: linkOf(t.statementId, pageOf.get(t.id) || 1) }));
-  const parts = [f.q && 'matching "' + f.q + '"', f.dir === 'in' ? 'money in' : f.dir === 'out' ? 'money out' : '', f.cat, f.year && (f.month ? f.month + '/' : '') + f.year, f.from && f.from + ' to ' + (f.to || 'now'), f.min != null && 'from $' + f.min, f.max != null && 'up to $' + f.max].filter(Boolean);
+  const parts = [f.q && 'matching "' + f.q + '"', f.dir === 'in' ? 'money in' : f.dir === 'out' ? 'money out' : '', f.cat === '__auto' ? 'not categorised' : f.cat, f.year && (f.month ? f.month + '/' : '') + f.year, f.from && f.from + ' to ' + (f.to || 'now'), f.min != null && 'from $' + f.min, f.max != null && 'up to $' + f.max].filter(Boolean);
   const info = { account: account.name, filters: parts.length ? 'Filtered: ' + parts.join(', ') : 'All transactions', exported: new Date().toLocaleDateString('en-AU', { day: 'numeric', month: 'short', year: 'numeric' }), sumIn: r.sumIn, sumOut: r.sumOut };
   const stamp = new Date().toISOString().slice(0, 10);
   const base = ('folio-' + account.name + '-transactions-' + stamp).replace(/[^\w.\-]/g, '_');

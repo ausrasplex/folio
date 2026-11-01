@@ -40,3 +40,11 @@ describe('searching and filtering transactions', () => {
     expect(r.byCat).toEqual([['Groceries', 122.1], ['Bills', 95], ['Software', 14.29]]);
   });
 });
+
+describe('transactions not categorised yet', () => {
+  it('are the ones with only the built-in suggestion: not chosen by hand and not from a rule', () => {
+    const r = queryTxns(rows, rules, own, { cat: '__auto' });
+    expect(ids(r)).toEqual(['5', '4', '3', '1']); // 6 was chosen by hand, 2 has a rule
+    expect(queryTxns(rows, rules, own, {}).uncategorised).toBe(4);
+  });
+});
