@@ -1,0 +1,18 @@
+# Kept out of the Docker image: secrets, local data, build output and anything only used while developing.
+.env
+.env.*
+!.env.example
+.git
+node_modules
+.next
+backups
+docs
+tools/shots
+tools/testdata
+tools/e2e
+.continue
+*.log
+tsconfig.tsbuildinfo
+public/pdf.worker.min.mjs
+public/pdf-fonts
+.next-standalone

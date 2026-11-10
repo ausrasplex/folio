@@ -26,6 +26,8 @@ const nextConfig: NextConfig = {
   reactStrictMode: false,
   // the Docker image (for Unraid) builds a standalone server; a plain `npm run build && npm start` does not need it
   output: process.env.FOLIO_STANDALONE ? 'standalone' : undefined,
+  // a build folder other than .next (to try a standalone build while the development server is using .next)
+  distDir: process.env.FOLIO_DIST_DIR || '.next',
   serverExternalPackages: ['pdfjs-dist', '@prisma/client', 'bcryptjs'],
   // statements are read by pdf.js in a worker thread that loads it by path, so the standalone build must copy it in
   outputFileTracingIncludes: { '/**': ['./node_modules/pdfjs-dist/legacy/build/**', './node_modules/pdfjs-dist/standard_fonts/**'] },

@@ -1,10 +1,14 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { PROXY_USER_HEADERS, fromTrustedProxy, frontDoor } from '@/lib/server/frontdoor';
+import { cleanIp } from '@/lib/server/clientip';
+import { SOCKET_HEADER } from '@/lib/server/socketip';
 
 // Runs before every page, route and file. Does nothing unless a front-door login is configured (see frontdoor.ts).
 export const config = { runtime: 'nodejs', matcher: '/:path*' };
 
 export async function middleware(req: NextRequest) {
+  // the container's own health check (from inside it) needs no front-door sign-in; from anywhere else it does
+  if (req.nextUrl.pathname === '/api/health' && /^(127\.|::1$)/.test(cleanIp(req.headers.get(SOCKET_HEADER)) || '')) return NextResponse.next();
   const door = await frontDoor(req.headers);
   if (!door.ok) return new NextResponse(door.why, { status: 403, headers: { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' } });
   // who-signed-in headers count only from our own proxies: from anyone else they are removed before Folio sees them

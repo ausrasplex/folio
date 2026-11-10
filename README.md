@@ -2,7 +2,7 @@
 
 A self-hosted app for keeping an eye on home loans: import the bank's statements, check they add up, and see when each loan will be paid off. It runs on your own computer or server and is meant to be reached on your home network or VPN.
 
-This guide gets it running on your computer with Node.js and PostgreSQL. Unraid comes later and uses the same app.
+This guide gets it running on your computer with Node.js and PostgreSQL. To run it on Unraid with Docker, follow [unraid/README.md](unraid/README.md) instead: it uses the same app.
 
 ## What you need
 

@@ -1,0 +1,38 @@
+<?xml version="1.0"?>
+<Container version="2">
+  <Name>Folio</Name>
+  <Repository>ghcr.io/YOUR_GITHUB_USERNAME/folio:latest</Repository>
+  <Registry>https://github.com/YOUR_GITHUB_USERNAME/folio/pkgs/container/folio</Registry>
+  <Network>bridge</Network>
+  <MyIP/>
+  <Shell>sh</Shell>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/YOUR_GITHUB_USERNAME/folio/issues</Support>
+  <Project>https://github.com/YOUR_GITHUB_USERNAME/folio</Project>
+  <Overview>Folio: a self-hosted home loan statement monitor and payoff forecaster. Import your loan and account statements, check the interest the bank charged, track offsets, spending by category and credit cards, and see when the loan is paid off.&#xD;
+&#xD;
+Needs a PostgreSQL database (for example the official postgres image, version 16). Set the Database URL and a Secret key before the first start. See unraid/README.md in the project for the step-by-step setup.</Overview>
+  <Category>Productivity: Tools:</Category>
+  <WebUI>http://[IP]:[PORT:3000]/</WebUI>
+  <TemplateURL>https://raw.githubusercontent.com/YOUR_GITHUB_USERNAME/folio/main/unraid/folio.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/YOUR_GITHUB_USERNAME/folio/main/unraid/folio-icon.png</Icon>
+  <ExtraParams>--restart=unless-stopped</ExtraParams>
+  <PostArgs/>
+  <CPUset/>
+  <Requires>A PostgreSQL database (for example the official postgres:16 image), with a database and user for Folio.</Requires>
+  <Config Name="Web UI port" Target="3000" Default="3000" Mode="tcp" Description="The port Folio is opened on." Type="Port" Display="always" Required="true" Mask="false">3000</Config>
+  <Config Name="Backups" Target="/backups" Default="/mnt/user/appdata/folio/backups" Mode="rw" Description="Where Folio writes its automatic backups (database and statement files). In Folio, Settings, Server, leave the backup folder empty or set it to /backups." Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/folio/backups</Config>
+  <Config Name="Database URL" Target="DATABASE_URL" Default="" Description="Folio's PostgreSQL database: postgresql://USER:PASSWORD@UNRAID-IP:5432/folio?schema=public" Type="Variable" Display="always" Required="true" Mask="true"/>
+  <Config Name="Secret key" Target="FOLIO_SECRET" Default="" Description="32 or more random characters (make one with: openssl rand -base64 32). Encrypts account numbers and two-step secrets. Keep a copy somewhere safe and never change it: a backup only reads those back with the same key." Type="Variable" Display="always" Required="true" Mask="true"/>
+  <Config Name="Folio address" Target="FOLIO_URL" Default="" Description="The address people use to open Folio, for alert and invite links, for example http://192.168.1.10:3000 or https://folio.example.com. Starting with https:// also turns on HTTPS-only cookies." Type="Variable" Display="always" Required="false" Mask="false"/>
+  <Config Name="Time zone" Target="TZ" Default="Australia/Melbourne" Description="Your time zone, for backup times and dates." Type="Variable" Display="always" Required="false" Mask="false">Australia/Melbourne</Config>
+  <Config Name="Behind a reverse proxy" Target="FOLIO_TRUST_PROXY" Default="" Description="Set to true only when every request reaches Folio through your own reverse proxy (for example Nginx Proxy Manager or Cloudflare Tunnel). Leave empty when people open Folio directly." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Trusted proxy addresses" Target="FOLIO_TRUSTED_PROXY_IPS" Default="" Description="Addresses of proxies in front of that one, comma-separated. See docs/security/REMOTE-ACCESS.md." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Secure cookie" Target="FOLIO_SECURE_COOKIE" Default="" Description="false: always a plain sign-in cookie (when people also open Folio over plain HTTP at home). true: always HTTPS-only. Empty: decided from the address." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Cloudflare Access team" Target="FOLIO_CF_ACCESS_TEAM" Default="" Description="Your Cloudflare Zero Trust team name, when Cloudflare Access is in front of Folio." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Cloudflare Access audience" Target="FOLIO_CF_ACCESS_AUD" Default="" Description="The Access application's Audience (AUD) tag." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Cloudflare Access home bypass" Target="FOLIO_CF_ACCESS_LAN_BYPASS" Default="" Description="true: people on the home network or VPN need no Access sign-in." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Require a login proxy" Target="FOLIO_REQUIRE_PROXY_AUTH" Default="" Description="true: visitors from outside the home network must come through a login proxy such as Authelia (needs Behind a reverse proxy)." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Largest restore (MB)" Target="FOLIO_MAX_RESTORE_MB" Default="" Description="The largest backup file the admin can restore, in MB (2048 when empty)." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+  <Config Name="Turn off background jobs" Target="FOLIO_NO_JOBS" Default="" Description="1: no automatic backups or alert sending (for testing only)." Type="Variable" Display="advanced" Required="false" Mask="false"/>
+</Container>

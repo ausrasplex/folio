@@ -14,3 +14,4 @@ docs/*
 public/logo.vectorcraft
 prisma/seed.ts
 .continue/permissions.yml
+.next-standalone
