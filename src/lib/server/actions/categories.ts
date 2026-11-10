@@ -1,6 +1,7 @@
 // Categories and category rules (shared in the household), and choosing a transaction's category.
+import { Prisma } from '@prisma/client';
 import { type Action, type Ctx, canEdit, db, hh, need, str } from '../actions';
-import { BUILT_IN, COLORS, categoryOf, ordered, ruleMatches, type RuleRow } from '../categories';
+import { BUILT_IN, COLORS, categoryOf, ordered, ruleMatches, type Cond, type RuleRow } from '../categories';
 import { householdCategories } from '../catdata';
 
 const MATCHES = ['contains', 'starts', 'equals', 'pattern'];
@@ -19,8 +20,42 @@ async function knownCategory(c: Ctx, name: unknown) {
 /** Transactions in accounts the person holds, in this household. */
 const myTxns = (c: Ctx) => ({ statement: { householdId: hh(c), deletedAt: null, account: { holders: { some: { userId: c.u.id } } } } });
 /** The rule as sent from the editor, checked. */
+/** A rule's conditions as sent from the editor, checked: known fields and tests, amounts as numbers, accounts you hold. */
+async function condsFrom(c: Ctx, raw: unknown): Promise<Cond[]> {
+  const list = (Array.isArray(raw) ? raw : []).slice(0, 20) as Record<string, unknown>[];
+  const out: Cond[] = [];
+  for (const x of list) {
+    const field = str(x.field);
+    const join = out.length ? (x.join === 'or' ? 'or' : 'and') : undefined;
+    if (field === 'description') {
+      const value = str(x.value, 80).trim();
+      if (!value) continue;
+      const op = ['contains', 'notContains', 'starts', 'equals', 'pattern'].includes(str(x.op)) ? str(x.op) : 'contains';
+      out.push({ join, field, op, value });
+    } else if (field === 'amount') {
+      const n = (v: unknown) => (v === '' || v == null || !isFinite(Number(String(v).replace(/[$,]/g, ''))) ? null : Math.round(Math.abs(Number(String(v).replace(/[$,]/g, ''))) * 100) / 100);
+      const op = ['equals', 'over', 'under', 'between'].includes(str(x.op)) ? str(x.op) : 'equals';
+      const value = n(x.value), value2 = op === 'between' ? n(x.value2) : null;
+      if (value == null || (op === 'between' && value2 == null)) continue;
+      out.push({ join, field, op, value, value2 });
+    } else if (field === 'direction') {
+      out.push({ join, field, value: x.value === 'in' ? 'in' : 'out' });
+    } else if (field === 'account') {
+      const id = (await db.account.findFirst({ where: { id: str(x.value), householdId: hh(c), deletedAt: null, holders: { some: { userId: c.u.id } } }, select: { id: true } }))?.id;
+      if (id) out.push({ join, field, value: id });
+    }
+  }
+  return out;
+}
+
 async function ruleFrom(c: Ctx) {
   const p = c.p;
+  // a rule built from conditions (with AND and OR) keeps them, and leaves the single-condition fields empty
+  if (Array.isArray(p.conditions)) {
+    const conditions = await condsFrom(c, p.conditions);
+    need(conditions.length, 'Add a condition with words or an amount to match.');
+    return { category: await knownCategory(c, p.category), terms: '', match: 'contains', direction: 'any', amountMin: null as number | null, amountMax: null as number | null, accountId: null as string | null, enabled: p.enabled !== false, conditions };
+  }
   const terms = str(p.terms, 2000).split(/\n/).map((x) => x.trim().slice(0, 80)).filter(Boolean).join('\n');
   const amt = (v: unknown) => (v === '' || v == null || !isFinite(Number(v)) ? null : Math.round(Math.abs(Number(v)) * 100) / 100);
   const amountMin = amt(p.amountMin), amountMax = amt(p.amountMax);
@@ -29,8 +64,10 @@ async function ruleFrom(c: Ctx) {
   let accountId: string | null = str(p.accountId) || null;
   if (accountId) accountId = (await db.account.findFirst({ where: { id: accountId, householdId: hh(c), deletedAt: null, holders: { some: { userId: c.u.id } } }, select: { id: true } }))?.id || null;
   need(terms || amountMin != null || amountMax != null || direction !== 'any' || accountId, 'Add words or an amount to match.');
-  return { category: await knownCategory(c, p.category), terms, match: MATCHES.includes(str(p.match)) ? str(p.match) : 'contains', direction, amountMin, amountMax, accountId, enabled: p.enabled !== false };
+  return { category: await knownCategory(c, p.category), terms, match: MATCHES.includes(str(p.match)) ? str(p.match) : 'contains', direction, amountMin, amountMax, accountId, enabled: p.enabled !== false, conditions: null as Cond[] | null };
 }
+/** A checked rule as stored: no conditions is the database null, not JSON null. */
+const forDb = (r: Awaited<ReturnType<typeof ruleFrom>>) => ({ ...r, conditions: r.conditions ? (r.conditions as unknown as Prisma.InputJsonValue) : Prisma.DbNull });
 const asRow = (r: Awaited<ReturnType<typeof ruleFrom>>, id = 'new', priority = 1e9): RuleRow => ({ id, priority, ...r });
 
 export const categoryActions: Record<string, Action> = {
@@ -91,11 +128,11 @@ export const categoryActions: Record<string, Action> = {
     if (id) {
       const old = await db.categoryRule.findFirst({ where: { id, householdId: hh(c) } });
       need(old, 'That rule is not in your household.');
-      await db.categoryRule.update({ where: { id }, data: r });
+      await db.categoryRule.update({ where: { id }, data: forDb(r) });
       return { id };
     }
     const last = await db.categoryRule.findFirst({ where: { householdId: hh(c) }, orderBy: { priority: 'desc' } });
-    return { id: (await db.categoryRule.create({ data: { ...r, householdId: hh(c), priority: (last?.priority ?? 0) + 1, createdById: c.u.id } })).id };
+    return { id: (await db.categoryRule.create({ data: { ...forDb(r), householdId: hh(c), priority: (last?.priority ?? 0) + 1, createdById: c.u.id } })).id };
   },
   ruleDelete: async (c) => {
     canEdit(c);

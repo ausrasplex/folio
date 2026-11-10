@@ -62,3 +62,30 @@ describe('credit card wording', () => {
     expect(categorize('JC SERVICES AUST PAY', 4709.9)).toBe('Income');
   });
 });
+
+describe('rules with several conditions', () => {
+  const t = (description: string, debit: number, credit = 0, accountId = 'a1') => ({ description, debit, credit, accountId });
+  it('joins conditions with AND and OR, AND checked first', async () => {
+    const { ruleMatches } = await import('./categories');
+    const r = { ...rule({}), conditions: [
+      { field: 'description' as const, op: 'contains', value: 'woolworths' },
+      { join: 'and' as const, field: 'direction' as const, value: 'out' },
+      { join: 'or' as const, field: 'description' as const, op: 'contains', value: 'coles' }
+    ] };
+    // (woolworths and money out) or coles
+    expect(ruleMatches(r, t('WOOLWORTHS 3342', 82.1))).toBe(true);
+    expect(ruleMatches(r, t('WOOLWORTHS REFUND', 0, 12))).toBe(false);
+    expect(ruleMatches(r, t('COLES EXPRESS', 0, 5))).toBe(true);
+    expect(ruleMatches(r, t('ALDI STORES', 40))).toBe(false);
+  });
+  it('checks amounts, accounts, and descriptions that must not contain words', async () => {
+    const { condMatches } = await import('./categories');
+    expect(condMatches({ field: 'amount', op: 'over', value: 100 }, t('X', 150))).toBe(true);
+    expect(condMatches({ field: 'amount', op: 'under', value: 100 }, t('X', 150))).toBe(false);
+    expect(condMatches({ field: 'amount', op: 'between', value: 50, value2: 100 }, t('X', 95))).toBe(true);
+    expect(condMatches({ field: 'amount', op: 'equals', value: 14.29 }, t('X', 14.29))).toBe(true);
+    expect(condMatches({ field: 'account', value: 'a2' }, t('X', 1))).toBe(false);
+    expect(condMatches({ field: 'description', op: 'notContains', value: 'refund' }, t('AMAZON MARKETPLACE', 44.56))).toBe(true);
+    expect(condMatches({ field: 'description', op: 'notContains', value: 'refund' }, t('AMAZON REFUND', 0, 44.56))).toBe(false);
+  });
+});

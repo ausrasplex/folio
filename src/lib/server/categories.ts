@@ -3,9 +3,23 @@
 // matches it, or the built-in guess from its description.
 
 export type CategoryKind = 'spend' | 'income' | 'transfer';
+/** One condition of a rule. From the second on, `join` says how it joins the ones before: AND is checked before OR,
+ *  so a AND b OR c means (a and b) or c. */
+export type Cond = {
+  join?: 'and' | 'or';
+  field: 'description' | 'amount' | 'direction' | 'account';
+  /** description: contains | notContains | starts | equals | pattern; amount: equals | over | under | between */
+  op?: string;
+  /** the words, the amount, out or in, or the account's id */
+  value: string | number;
+  /** the top of an amount range */
+  value2?: number | null;
+};
 export type RuleRow = {
   id: string; category: string; terms: string; match: string; direction: string;
   amountMin: number | null; amountMax: number | null; accountId: string | null; priority: number; enabled: boolean;
+  /** when set, these replace the single-condition fields above */
+  conditions?: Cond[] | null;
 };
 export type TxnLike = { description: string; debit: number; credit: number; accountId?: string | null; category?: string | null };
 
@@ -56,8 +70,39 @@ export const ruleTerms = (terms: string) => terms.split(/[\n,]/).map(squash).fil
 const wildcard = (term: string) => new RegExp(term.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.'));
 
 /** Whether a rule matches a transaction. Every condition the rule sets must hold. */
+/** Whether one condition holds for a transaction. */
+export function condMatches(c: Cond, t: TxnLike) {
+  if (c.field === 'direction') return c.value === 'in' ? t.credit > 0 : t.debit > 0;
+  if (c.field === 'account') return !!c.value && t.accountId === c.value;
+  if (c.field === 'amount') {
+    const a = t.debit || t.credit, v = Number(c.value), v2 = c.value2 == null ? null : Number(c.value2);
+    if (!isFinite(v)) return false;
+    if (c.op === 'over') return a > v + 0.001;
+    if (c.op === 'under') return a < v - 0.001;
+    if (c.op === 'between') return v2 != null && a >= Math.min(v, v2) - 0.001 && a <= Math.max(v, v2) + 0.001;
+    return Math.abs(a - v) < 0.005;
+  }
+  const w = squash(String(c.value));
+  if (!w) return false;
+  const d = squash(t.description);
+  if (c.op === 'notContains') return !d.includes(w);
+  if (c.op === 'starts') return d.startsWith(w);
+  if (c.op === 'equals') return d === w;
+  if (c.op === 'pattern') return wildcard(w).test(d);
+  return d.includes(w);
+}
+
+/** Whether a list of conditions holds: split at each OR into groups, a group holds when all its conditions do, and the
+ *  list holds when any group does (AND is checked before OR). */
+export function condsMatch(conds: Cond[], t: TxnLike) {
+  const groups: Cond[][] = [];
+  conds.forEach((c, i) => { if (i === 0 || c.join === 'or') groups.push([c]); else groups[groups.length - 1].push(c); });
+  return groups.some((g) => g.every((c) => condMatches(c, t)));
+}
+
 export function ruleMatches(r: RuleRow, t: TxnLike) {
   if (!r.enabled) return false;
+  if (r.conditions && r.conditions.length) return condsMatch(r.conditions, t);
   if (r.accountId && t.accountId !== r.accountId) return false;
   if (r.direction === 'out' && !(t.debit > 0)) return false;
   if (r.direction === 'in' && !(t.credit > 0)) return false;

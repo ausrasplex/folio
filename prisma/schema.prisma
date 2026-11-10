@@ -467,6 +467,7 @@ model CategoryRule {
   amountMin   Decimal?  @db.Decimal(14, 2)
   amountMax   Decimal?  @db.Decimal(14, 2)
   accountId   String? // only this account, or any
+  conditions  Json? // [{ join: and|or, field: description|amount|direction|account, op, value, value2 }]; when set it replaces the fields above
   priority    Int       @default(0)
   enabled     Boolean   @default(true)
   createdById String?
