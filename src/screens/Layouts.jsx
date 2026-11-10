@@ -116,12 +116,12 @@ class Screen extends DCBase {
   }
   iconText(l) { return l.icon ? '' : (l.name || '?').charAt(0); }
   secDefs(kind) {
-    const L = kind === 'loan';
+    const L = kind === 'loan', C = kind === 'card';
     const all = [
       ['period', 'Statement period', 1, [58, 19, 38, 7], true],
       ['opening', 'Opening balance', 1, [4, 36, 18, 7], true],
-      L ? ['interest', 'Interest charged', 1, [24, 36, 18, 7], true] : ['debits', 'Total debits', 1, [24, 36, 18, 7], true],
-      ['credits', 'Total credits', 1, [62, 36, 16, 7], true],
+      L ? ['interest', 'Interest charged', 1, [24, 36, 18, 7], true] : ['debits', C ? 'Total purchases and charges' : 'Total debits', 1, [24, 36, 18, 7], true],
+      ['credits', C ? 'Total payments and credits' : 'Total credits', 1, [62, 36, 16, 7], true],
       ['closing', 'Closing balance', 1, [80, 36, 17, 7], true],
       ['table', 'Transactions table', 2, [4, 12, 92, 80], true],
       ['cDate', 'Date column', 2, [4, 12, 12, 80], true],
@@ -242,7 +242,7 @@ class Screen extends DCBase {
       const defs = this.secDefs(viewL.kind);
       let csvRows = [];
       if (viewL.fmt === 'CSV' && smp && smp.csv) { this.loadText(smp.id); csvRows = ((st.texts || {})[smp.id] || []).slice(1, 5); }
-      v = { name: viewL.name, sub: L.name + ' · ' + viewL.fmt + ' ' + (viewL.kind === 'loan' ? 'loan' : 'account') + ' statement', icon: iconSt(viewL), status: s[0], chip: s[1],
+      v = { name: viewL.name, sub: L.name + ' · ' + viewL.fmt + ' ' + (viewL.kind === 'loan' ? 'loan' : viewL.kind === 'card' ? 'credit card' : 'account') + ' statement', icon: iconSt(viewL), status: s[0], chip: s[1],
         isPdf: viewL.fmt === 'PDF', isCsv: viewL.fmt === 'CSV', needsRemap: viewL.status === 'remap', verLabel: viewL.status === 'remap' ? 'Re-map' : 'New version',
         remapText: 'A statement imported ' + (viewL.failed ? 'on ' + fmtD(isoD(viewL.failed)) + ' ' : '') + 'did not match this layout. Re-map it with that statement; your current boxes are placed for you.',
         secs: viewL.fmt === 'CSV' ? (viewL.cols || []).map((c, i) => ({ k: csvRoles[c] || 'Ignored', v: 'Column ' + (i + 1) + (viewL.header[i] ? ' · ' + viewL.header[i] : '') })) : defs.filter((x) => (viewL.map || {})[x.id]).map((x) => ({ k: x.label, v: 'Page ' + viewL.map[x.id].page + (x.req ? '' : ' · optional') })),
@@ -375,7 +375,7 @@ class Screen extends DCBase {
         hasLender: !!lender, lenderLabel: lender ? lender.name : 'Choose a lender', lenderMeta: lender ? (lender.currency || 'AUD') + ' · ' + (lays.filter((l) => l.lenderName.toLowerCase() === lender.name.toLowerCase()).length ? plural(lays.filter((l) => l.lenderName.toLowerCase() === lender.name.toLowerCase()).length, 'layout') + ' saved' : 'no layouts yet') : '',
         lenderIcon: lender ? this.iconBox(lender, 'a1', 28) : '', lenderIconText: lender ? this.iconText(lender) : '', lenderTextStyle: lender ? '' : 'color:var(--muted)',
         lenderBtnStyle: tried[0] && !lender ? 'border-color:var(--danger)' : '', eLender: !!tried[0] && !lender, noLayout: false, openLender: () => this.setState({ pick: 'lender' }),
-        kinds: [['loan', 'Loan statement'], ['account', 'Account statement']].map((o) => ({ t: o[1], sel: ed.kind === o[0], style: chipSt(ed.kind === o[0]), pick: () => setEd({ kind: o[0], map: {} }) })), eKind: !!tried[0] && !ed.kind,
+        kinds: [['loan', 'Loan statement'], ['account', 'Account statement'], ['card', 'Credit card statement']].map((o) => ({ t: o[1], sel: ed.kind === o[0], style: chipSt(ed.kind === o[0]), pick: () => setEd({ kind: o[0], map: {} }) })), eKind: !!tried[0] && !ed.kind,
         isPdfEd: !isCsv, isCsvEd: isCsv,
         markTitle: isCsv ? 'Match the Columns' : 'Mark the Sections',
         markSub: isCsv ? 'Tell Folio what each column holds. The preview shows how it reads the first rows.' : 'Drag a box around the section shown in the Marking button. Tap it to pick another section or let Folio suggest a box.',
@@ -402,7 +402,7 @@ class Screen extends DCBase {
         nwSave: async () => { if (nwBad) return; const r = await this.run('addLender', { name: nw.name.trim(), website: nw.web, phone: nw.phone }); if (r) this.setState({ nw: null, pick: null, ed: Object.assign({}, ed, { lender: r.id }) }); }
       };
       // a default name only until one is typed or cleared: an emptied name stays empty
-      if (step === 2 && ed.name == null) { const nm = (kind === 'loan' ? 'Home loan statement' : 'Account statement') + (isCsv ? ' (CSV)' : ''); setTimeout(() => { if ((this.state || {}).ed && this.state.ed.name == null) this.setState({ ed: Object.assign({}, this.state.ed, { name: nm }) }); }, 0); }
+      if (step === 2 && ed.name == null) { const nm = (kind === 'loan' ? 'Home loan statement' : kind === 'card' ? 'Credit card statement' : 'Account statement') + (isCsv ? ' (CSV)' : ''); setTimeout(() => { if ((this.state || {}).ed && this.state.ed.name == null) this.setState({ ed: Object.assign({}, this.state.ed, { name: nm }) }); }, 0); }
     }
     return Object.assign(this.baseVals(), {
       isEmpty: empty || !lays.length, addPulse: empty || !lays.length ? 'addpulse' : '',

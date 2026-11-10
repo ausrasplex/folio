@@ -126,7 +126,9 @@ class Screen extends DCBase {
     const owing = loans.reduce((t, l) => t + l.bal, 0);
     const orig = loans.reduce((t, l) => t + l.orig, 0);
     const repaidPct = orig > 0 ? Math.round((orig - owing) / orig * 100) : 0;
-    const held = accts.reduce((t, a) => t + a.balance, 0);
+    // a credit card's balance is owed, not held
+    const held = accts.filter((a) => !a.card).reduce((t, a) => t + a.balance, 0);
+    const cardsOwed = accts.filter((a) => a.card).reduce((t, a) => t + a.balance, 0), nCards = accts.filter((a) => a.card).length;
     const linked = accts.filter((a) => a.link && loans.some((l) => l.id === a.link));
     const offsets = linked.reduce((t, a) => t + a.balance, 0);
     const offsetLoans = new Set(linked.map((a) => a.link)).size;
@@ -181,7 +183,7 @@ class Screen extends DCBase {
       const ld = this.lenderByName(sh, a.lender);
       const L = a.link && loans.find((x) => x.id === a.link);
       const sv = savedOf(a);
-      return { name: a.name, bal: money(a.balance), sub: L ? 'Offsets ' + L.name : a.lender + (a.type ? ' · ' + a.type : ''), note: sv >= 1 ? money(sv) + ' saved' : '',
+      return { name: a.name, bal: a.card ? money(a.balance) + ' owed' : money(a.balance), sub: a.card ? 'Credit card' + (a.limit ? ' · ' + money(a.available) + ' available' : '') : L ? 'Offsets ' + L.name : a.lender + (a.type ? ' · ' + a.type : ''), note: sv >= 1 ? money(sv) + ' saved' : '',
         icon: this.iconBox(ld, a.slot, 40), iconText: this.iconText(ld), href: '/accounts?id=' + a.id };
     });
 
@@ -222,7 +224,7 @@ class Screen extends DCBase {
       attSub: att.length ? plural(att.length, 'item') + ' across your loans, accounts and statements' : 'Rate reviews, missing statements and rate changes show here',
       attMore: att.length > ATT_MAX, attMoreLabel: st.attAll ? 'Show fewer' : 'Show all ' + att.length, toggleAtt: () => this.setState({ attAll: !st.attAll }),
       lrows, loansHas: lrows.length > 0, loansNone: !lrows.length, loansSub: loans.length ? money(owing) + ' owing on ' + plural(loans.length, 'loan') : 'Nothing owing',
-      arows, acctsHas: arows.length > 0, acctsNone: !arows.length, acctsSub: accts.length ? money(held) + ' across ' + plural(accts.length, 'account') : 'No balances yet',
+      arows, acctsHas: arows.length > 0, acctsNone: !arows.length, acctsSub: accts.length ? money(held) + ' across ' + plural(accts.length - nCards, 'account') + (nCards ? ', ' + money(cardsOwed) + ' owed on ' + plural(nCards, 'credit card') : '') : 'No balances yet',
       recent, recentHas: recent.length > 0, recentNone: !recent.length, recentSub: stmts.length ? plural(stmts.length, 'statement') + ' imported' : 'Nothing imported yet',
       contacts, contactsHas: contacts.length > 0
     };

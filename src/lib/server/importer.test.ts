@@ -118,3 +118,16 @@ describe('readCsv', () => {
     expect(r.ok).toBe(true);
   });
 });
+
+describe('credit card statements', () => {
+  it('read the balance as owed: purchases add to it and payments take it off', () => {
+    const p = page(1, [['01 Oct 2026', 'WOOLWORTHS 3342', '82.10', '', '1,282.10'], ['05 Oct 2026', 'PAYMENT RECEIVED - THANK YOU', '', '500.00', '782.10'], ['09 Oct 2026', 'INTEREST CHARGED', '14.20', '', '796.30']]);
+    p.items.push({ s: '01/10/2026 to 31/10/2026', x: 1, y: 2, w: 15, h: 1.5, page: 1 }, { s: '1,200.00', x: 10, y: 6, w: 6, h: 1.5, page: 1 }, { s: '796.30', x: 40, y: 6, w: 6, h: 1.5, page: 1 });
+    const map = { ...accountMap, period: { page: 1, box: [0, 1, 20, 3] }, opening: { page: 1, box: [9, 5, 9, 3] }, closing: { page: 1, box: [39, 5, 9, 3] } };
+    const r = readPdf([p], map as never, 'card');
+    expect(r.ok).toBe(true);
+    expect(r.checks[0].text).toBe('Opening $1,200.00 owed + purchases and charges $96.30 − payments and credits $500.00 = closing $796.30 owed');
+    // read as an account statement, the same figures do not add up
+    expect(readPdf([p], map as never, 'account').ok).toBe(false);
+  });
+});

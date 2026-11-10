@@ -38,6 +38,9 @@ async function fields(c: Ctx) {
   const creditLimit = card ? amt(p.creditLimit) : null, cardRate = card ? amt(p.cardRate) : null;
   const dueDay = card && p.dueDay !== '' && p.dueDay != null ? Math.round(Number(p.dueDay)) : null;
   if (card) {
+    // only the last 4 digits of a card are kept, never the whole card number, and a card has no BSB
+    need(!number || /^\d{4}$/.test(number), 'Enter just the last 4 digits of the card.');
+    need(!bsb, 'A credit card has no BSB.');
     need(creditLimit != null && isFinite(creditLimit) && creditLimit > 0, "Enter the card's credit limit.");
     need(cardRate == null || (isFinite(cardRate) && cardRate >= 0 && cardRate <= 60), 'The interest rate is a percentage, like 20.99.');
     need(dueDay == null || (dueDay >= 1 && dueDay <= 31), 'The payment due day is a day of the month, 1 to 31.');

@@ -30,3 +30,13 @@ describe('matching a statement by its account number', () => {
     expect(ids('311 2335939 07')).toEqual(['a1', 'a2']); // the loan is known, the split is not
   });
 });
+
+describe('which statements can go where', () => {
+  it('sends loan statements to loans, card statements to cards, and account statements to the other accounts', async () => {
+    const { fitsKind } = await import('./imports');
+    const split = { kind: 'split' }, savings = { kind: 'account', card: false }, visa = { kind: 'account', card: true };
+    expect([fitsKind('loan', split), fitsKind('loan', savings), fitsKind('loan', visa)]).toEqual([true, false, false]);
+    expect([fitsKind('account', split), fitsKind('account', savings), fitsKind('account', visa)]).toEqual([false, true, false]);
+    expect([fitsKind('card', split), fitsKind('card', savings), fitsKind('card', visa)]).toEqual([false, false, true]);
+  });
+});

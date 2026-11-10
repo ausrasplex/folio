@@ -118,10 +118,13 @@ class Screen extends DCBase {
   }
   iconText(l) { return l.icon ? '' : (l.name || '?').charAt(0); }
   lenderOf(s) { return (this.data.lenders || []).find((x) => x.id === s.lenderId) || { name: s.lender || '?' }; }
+  /** Whether a statement of this layout kind can go to a destination: loan statements to loans, credit card statements to
+   *  credit card accounts, account statements to the other accounts. */
+  fitsKind(kind, s) { return kind === 'loan' ? s.kind === 'loan' : s.kind === 'account' && !!s.card === (kind === 'card'); }
   sources() {
     const d = this.data; const out = [];
     (d.loans || []).forEach((l) => l.splits.forEach((x) => out.push({ id: x.id, name: l.name + (l.splits.length > 1 ? ' · ' + x.name : ''), short: x.name, parent: l.name, kind: 'loan', lender: l.lender, lenderId: l.lenderId, slot: l.slot, href: '/loan?id=' + l.id, loanId: l.id })));
-    (d.accounts || []).forEach((a) => out.push({ id: a.id, name: a.name, parent: a.name, kind: 'account', lender: a.lender, lenderId: a.lenderId, slot: a.slot, href: '/accounts', accountId: a.id }));
+    (d.accounts || []).forEach((a) => out.push({ id: a.id, name: a.name, parent: a.name, kind: 'account', card: !!a.card, lender: a.lender, lenderId: a.lenderId, slot: a.slot, href: '/accounts', accountId: a.id }));
     return out;
   }
   async startImport(fileList, dest) {
@@ -242,10 +245,10 @@ class Screen extends DCBase {
       const rd = f.read;
       const end = rd && rd.period ? rd.period.end : null;
       const dupPeriod = !!(dest && end && (D.statements || []).some((t) => !t.deletedAt && (t.splitId || t.accountId) === dest.id && t.end === end));
-      const kindBad = !!(dest && f.layout && (f.layout.kind === 'loan') !== (dest.kind === 'loan'));
+      const kindBad = !!(dest && f.layout && !this.fitsKind(f.layout.kind, dest));
       const older = !!(dest && end && (D.statements || []).some((t) => !t.deletedAt && (t.splitId || t.accountId) === dest.id && t.end > end));
       const ok = !f.error && !!f.layout && !!rd && rd.ok && !!dest && !dupPeriod && !kindBad;
-      const why = f.error ? f.error : !f.layout ? 'No saved layout reads ' + f.name + ' yet. Map one, or skip the file' : !rd || !rd.ok ? f.name + ' does not add up with this layout. Choose the matched version or skip the file' : !dest ? 'Choose where ' + f.name + ' goes' : kindBad ? (f.layout.kind === 'loan' ? 'This is a loan statement. Choose a loan' : 'This is an account statement. Choose an account') : dupPeriod ? 'A statement for this period is already imported for ' + dest.name + '. Skip the file' : '';
+      const why = f.error ? f.error : !f.layout ? 'No saved layout reads ' + f.name + ' yet. Map one, or skip the file' : !rd || !rd.ok ? f.name + ' does not add up with this layout. Choose the matched version or skip the file' : !dest ? 'Choose where ' + f.name + ' goes' : kindBad ? (f.layout.kind === 'loan' ? 'This is a loan statement. Choose a loan' : f.layout.kind === 'card' ? 'This is a credit card statement. Choose a credit card' : 'This is an account statement. Choose an account that is not a credit card') : dupPeriod ? 'A statement for this period is already imported for ' + dest.name + '. Skip the file' : '';
       return { L, dest, rd, ok, why, dupPeriod, older, kindBad };
     };
     const infos = imp.map(fileInfo);
@@ -298,7 +301,7 @@ class Screen extends DCBase {
     // Goes To for one file, or for every included file at once (destFor 'all')
     const bulk = st.destFor === 'all';
     const inc = imp.map((f, i) => ({ f, i })).filter((o) => !o.f.skip && !o.f.error);
-    const fits = (f, s) => !f.layout || (f.layout.kind === 'loan') === (s.kind === 'loan');
+    const fits = (f, s) => !f.layout || this.fitsKind(f.layout.kind, s);
     const dF = bulk ? null : st.destFor != null ? imp[st.destFor] : null;
     const bulkKinds = Array.from(new Set(inc.filter((o) => o.f.layout).map((o) => o.f.layout.kind)));
     const bulkSame = inc.length && inc.every((o) => o.f.dest === inc[0].f.dest) ? inc[0].f.dest : null;
@@ -306,12 +309,11 @@ class Screen extends DCBase {
       const hit = inc.filter((o) => fits(o.f, s));
       this.setState({ destFor: null, imp: (this.state.imp || []).map((f, k) => (hit.some((o) => o.i === k) ? Object.assign({}, f, { dest: s.id }) : f)) });
       const left = inc.length - hit.length;
-      const other = s.kind === 'loan' ? 'an account statement' : 'a loan statement';
-      this.flash(s.name + ' set for ' + plural(hit.length, 'file') + (left === 1 ? '. 1 file is ' + other + ', so it was left as it was' : left ? '. ' + left + ' files are ' + other.replace(/^an? /, '') + 's, so they were left as they were' : ''));
+      this.flash(s.name + ' set for ' + plural(hit.length, 'file') + (left === 1 ? '. 1 file is a different kind of statement, so it was left as it was' : left ? '. ' + left + ' files are a different kind of statement, so they were left as they were' : ''));
     };
-    const destOpts = dF || bulk ? srcs.filter((s) => (bulk ? bulkKinds.length !== 1 || (bulkKinds[0] === 'loan') === (s.kind === 'loan') : fits(dF, s))).map((s) => {
+    const destOpts = dF || bulk ? srcs.filter((s) => (bulk ? bulkKinds.length !== 1 || this.fitsKind(bulkKinds[0], s) : fits(dF, s))).map((s) => {
       const on = bulk ? s.id === bulkSame : s.id === dF.dest;
-      return { t: s.name, d: (s.kind === 'loan' ? (s.single ? 'Loan · ' : 'Loan split · ') : 'Account · ') + s.lender, sel: on, cls: on ? 'on' : '', icon: this.iconBox(this.lenderOf(s), s.slot, 36), iconText: this.iconText(this.lenderOf(s)),
+      return { t: s.name, d: (s.kind === 'loan' ? (s.single ? 'Loan · ' : 'Loan split · ') : s.card ? 'Credit card · ' : 'Account · ') + s.lender, sel: on, cls: on ? 'on' : '', icon: this.iconBox(this.lenderOf(s), s.slot, 36), iconText: this.iconText(this.lenderOf(s)),
         pick: () => { if (bulk) pickBulk(s); else { setImp(st.destFor, { dest: s.id }); this.setState({ destFor: null }); } } };
     }) : [];
     const reading = stage === 'reading';
