@@ -3,7 +3,8 @@ import { type Action, type Ctx, canEdit, d, db, hh, money, need, str } from '../
 import { enc } from '../crypto';
 import { memberIds } from './loans';
 
-const TYPES = ['Everyday', 'Savings', 'Bills', 'Offset'];
+const TYPES = ['Everyday', 'Savings', 'Bills', 'Offset', 'Credit card'];
+export const CARD = 'Credit card';
 
 async function myAccount(c: Ctx, id: unknown, closed: boolean | null = false) {
   const a = await db.account.findFirst({ where: { id: str(id), householdId: hh(c), deletedAt: null, ...(closed === null ? {} : { closedAt: closed ? { not: null } : null }), holders: { some: { userId: c.u.id } } } });
@@ -31,7 +32,17 @@ async function fields(c: Ctx) {
   const bsb = str(p.bsb, 7), number = str(p.number ?? p.num, 20).replace(/\s/g, '');
   need(bsbOk(bsb), 'A BSB is six digits, like 062-000.');
   need(numOk(number), 'An account number is 4 to 12 digits.');
-  return { name, lenderId: lender!.id, type, bsb: bsb ? enc(bsb.replace(/^(\d{3})-?(\d{3})$/, '$1-$2')) : null, number: number ? enc(number) : null, nameOnAccount: str(p.holder, 120) || null, offsetLoanId: await linkOf(c, p.link) };
+  // a credit card has a limit (and may have its interest rate and payment due day); it can never offset a loan
+  const card = type === CARD;
+  const amt = (v: unknown) => (v === '' || v == null ? null : Number(String(v).replace(/[$,\s]/g, '')));
+  const creditLimit = card ? amt(p.creditLimit) : null, cardRate = card ? amt(p.cardRate) : null;
+  const dueDay = card && p.dueDay !== '' && p.dueDay != null ? Math.round(Number(p.dueDay)) : null;
+  if (card) {
+    need(creditLimit != null && isFinite(creditLimit) && creditLimit > 0, "Enter the card's credit limit.");
+    need(cardRate == null || (isFinite(cardRate) && cardRate >= 0 && cardRate <= 60), 'The interest rate is a percentage, like 20.99.');
+    need(dueDay == null || (dueDay >= 1 && dueDay <= 31), 'The payment due day is a day of the month, 1 to 31.');
+  }
+  return { name, lenderId: lender!.id, type, bsb: bsb ? enc(bsb.replace(/^(\d{3})-?(\d{3})$/, '$1-$2')) : null, number: number ? enc(number) : null, nameOnAccount: str(p.holder, 120) || null, offsetLoanId: card ? null : await linkOf(c, p.link), creditLimit, cardRate, dueDay };
 }
 
 export const accountActions: Record<string, Action> = {

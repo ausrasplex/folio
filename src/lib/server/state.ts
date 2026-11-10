@@ -103,6 +103,9 @@ export async function buildState(u: CurrentUser) {
       slot: SLOTS[i % 3], initial: (a.name || '?').charAt(0).toUpperCase(), link: a.offsetLoanId,
       bsb: dec(a.bsb), num: dec(a.number), holder: a.nameOnAccount || holderNames.join(' and '),
       balance: bal, hist, inc, exp, cats, tx: recent, statementCount: a.statements.length,
+      // a credit card: its balance is what is owed, against its limit
+      card: a.type === 'Credit card', limit: a.creditLimit == null ? null : num(a.creditLimit), cardRate: a.cardRate == null ? null : num(a.cardRate), dueDay: a.dueDay,
+      available: a.type === 'Credit card' && a.creditLimit != null ? Math.round((num(a.creditLimit) - bal) * 100) / 100 : null,
       lastStatement: a.statements.length ? iso(a.statements[a.statements.length - 1].periodEnd) : '',
       openedAt: a.openedAt ? monY(a.openedAt) : '', openedIso: iso(a.openedAt), closedAt: a.closedAt ? monY(a.closedAt) : '', closedIso: iso(a.closedAt),
       monthsFrom: monthEnds.map((d) => d.toLocaleDateString('en-AU', { month: 'short', timeZone: 'UTC' }))

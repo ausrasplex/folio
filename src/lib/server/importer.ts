@@ -232,7 +232,9 @@ function finish(r: Read, kind: string): Read {
     // show net of an interest adjustment credit)
     if (r.debits == null) r.debits = sum('debit', (t) => !/interest/i.test(t.description));
   } else if (r.debits == null) r.debits = sum('debit');
-  if (r.opening == null && r.txns.length && r.txns[0].balance != null) r.opening = r2(r.txns[0].balance - r.txns[0].debit * (kind === 'loan' ? 1 : -1) + r.txns[0].credit * (kind === 'loan' ? 1 : -1));
+  // a loan or credit card balance is what is owed: money out (purchases, interest) adds to it, money in takes it off
+  const owed = kind === 'loan' || kind === 'card';
+  if (r.opening == null && r.txns.length && r.txns[0].balance != null) r.opening = r2(r.txns[0].balance - r.txns[0].debit * (owed ? 1 : -1) + r.txns[0].credit * (owed ? 1 : -1));
   if (r.closing == null) { const last = [...r.txns].reverse().find((t) => t.balance != null); if (last) r.closing = last.balance; }
   if (!r.period && r.txns.length) r.period = { start: r.txns[0].date, end: r.txns[r.txns.length - 1].date };
   if (r.rate == null) { const rr = [...r.txns].reverse().find((t) => t.rate != null); if (rr) r.rate = rr.rate; }
@@ -243,6 +245,9 @@ function finish(r: Read, kind: string): Read {
   else if (kind === 'loan') {
     const calc = r2(r.opening + (r.interest || 0) + (r.debits || 0) - (r.credits || 0));
     checks.push({ ok: Math.abs(calc - r.closing) < 0.011, text: 'Opening ' + m(r.opening) + ' + interest ' + m(r.interest) + (r.debits ? ' + other debits ' + m(r.debits) : '') + ' − credits ' + m(r.credits) + ' = ' + (Math.abs(calc - r.closing) < 0.011 ? 'closing ' + m(r.closing) : m(calc) + ', but the closing balance says ' + m(r.closing)) });
+  } else if (kind === 'card') {
+    const calc = r2(r.opening + (r.debits || 0) - (r.credits || 0));
+    checks.push({ ok: Math.abs(calc - r.closing) < 0.011, text: 'Opening ' + m(r.opening) + ' owed + purchases and charges ' + m(r.debits) + ' − payments and credits ' + m(r.credits) + ' = ' + (Math.abs(calc - r.closing) < 0.011 ? 'closing ' + m(r.closing) + ' owed' : m(calc) + ', but the closing balance says ' + m(r.closing)) });
   } else {
     const calc = r2(r.opening + (r.credits || 0) - (r.debits || 0));
     checks.push({ ok: Math.abs(calc - r.closing) < 0.011, text: 'Opening ' + m(r.opening) + ' + money in ' + m(r.credits) + ' − money out ' + m(r.debits) + ' = ' + (Math.abs(calc - r.closing) < 0.011 ? 'closing ' + m(r.closing) : m(calc) + ', but the closing balance says ' + m(r.closing)) });
@@ -250,7 +255,7 @@ function finish(r: Read, kind: string): Read {
   const withBal = r.txns.filter((t) => t.balance != null);
   if (withBal.length && r.opening != null) {
     let prev = r.opening, good = 0;
-    const sign = kind === 'loan' ? 1 : -1;
+    const sign = owed ? 1 : -1;
     const off: string[] = []; // the first rows that do not agree, to say where to look
     for (const t of r.txns) {
       if (t.balance == null) continue;
@@ -300,7 +305,7 @@ export function readCsv(rows: string[][], map: CsvMap, kind: string): Read {
   // newest-first exports are turned around so the running balance reads forwards
   if (txns.length > 1 && txns[0].date > txns[txns.length - 1].date) txns.reverse();
   const first = txns[0];
-  const opening = first && first.balance != null ? r2(first.balance - (first.credit - first.debit) * (kind === 'loan' ? -1 : 1)) : null;
+  const opening = first && first.balance != null ? r2(first.balance - (first.credit - first.debit) * (kind === 'loan' || kind === 'card' ? -1 : 1)) : null;
   return finish({ format: 'CSV', pages: 1, period: null, opening, closing: null, interest: null, credits: null, debits: null, advance: null, rate: null, acct: '', txns, checks: [], ok: false }, kind);
 }
 

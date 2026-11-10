@@ -298,7 +298,10 @@ model Account {
   lender         Lender          @relation(fields: [lenderId], references: [id])
   lenderId       String
   name           String
-  type           String          @default("Everyday") // Everyday | Savings | Bills | Offset
+  type           String          @default("Everyday") // Everyday | Savings | Bills | Offset | Credit card
+  creditLimit    Decimal?        @db.Decimal(14, 2) // credit cards: the limit
+  cardRate       Decimal?        @db.Decimal(6, 4) // credit cards: the purchase interest rate, % a year
+  dueDay         Int? // credit cards: the day of the month the payment is due
   openedAt       DateTime?
   bsb            String?         // encrypted
   number         String?         // encrypted

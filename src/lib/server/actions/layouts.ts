@@ -3,7 +3,7 @@ import { type Action, type Ctx, canEdit, db, Fail, hh, need, str } from '../acti
 import { headerKey, parseCsv, pdfPages, pdfPhrases, readCsv, readPdf, UNREADABLE, type CsvMap, type PdfMap } from '../importer';
 import { myFile } from '../visible';
 
-const KINDS = ['loan', 'account'];
+const KINDS = ['loan', 'account', 'card'];
 
 async function sampleRead(c: Ctx, fileId: string, kind: string, format: string, map: Record<string, unknown>) {
   const f = await myFile(c.u.id, hh(c), fileId);
@@ -40,7 +40,7 @@ export const layoutActions: Record<string, Action> = {
     const p = c.p;
     const format = str(p.format) === 'CSV' ? 'CSV' : 'PDF';
     const kind = KINDS.includes(str(p.kind)) ? str(p.kind) : '';
-    need(kind, 'Choose loan or account statement.');
+    need(kind, 'Choose a loan, account or credit card statement.');
     const name = str(p.name, 80);
     need(name, 'Give the layout a name.');
     const lender = await db.lender.findFirst({ where: { householdId: hh(c), deletedAt: null, OR: [{ id: str(p.lenderId) }, { name: str(p.lenderName) }] } });

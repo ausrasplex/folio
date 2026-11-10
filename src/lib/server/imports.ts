@@ -7,7 +7,7 @@ import { rateInEffect, tidyRateRepeats } from './rates';
 
 export { rateInEffect };
 
-export type Dest = { kind: 'split'; id: string; loanId: string; name: string; offset: boolean; postingDay: number | null; dayCount: number } | { kind: 'account'; id: string; name: string };
+export type Dest = { kind: 'split'; id: string; loanId: string; name: string; offset: boolean; postingDay: number | null; dayCount: number } | { kind: 'account'; id: string; name: string; card?: boolean };
 
 /** Loan splits and accounts the person can import into. */
 export async function destinations(userId: string, householdId: string) {
@@ -16,7 +16,7 @@ export async function destinations(userId: string, householdId: string) {
   const out: (Dest & { lender: string; label: string; suffix?: string; suffixSaved?: boolean; number?: string })[] = [];
   // a split without a saved suffix is 01, 02 … in order, as the screens show it
   for (const l of loans) l.splits.forEach((s, k) => out.push({ kind: 'split', id: s.id, loanId: l.id, name: l.name + (l.splits.length > 1 ? ' · ' + s.name : ''), offset: l.offsetAccounts.length > 0, postingDay: l.postingDay, dayCount: l.lender.dayCount, lender: l.lender.name, label: l.splits.length > 1 ? 'Loan split' : 'Loan', suffix: s.accountSuffix || String(k + 1).padStart(2, '0'), suffixSaved: !!s.accountSuffix, number: digits(dec(l.accountNumber)) }));
-  for (const a of accts) out.push({ kind: 'account', id: a.id, name: a.name, lender: a.lender.name, label: 'Account' });
+  for (const a of accts) out.push({ kind: 'account', id: a.id, name: a.name, lender: a.lender.name, label: a.type === 'Credit card' ? 'Credit card' : 'Account', card: a.type === 'Credit card' });
   return out;
 }
 
@@ -50,9 +50,13 @@ export async function checkDest(userId: string, householdId: string, dest: strin
   return h.kind === 'split' && (byNumber || h.loanId === cur.loanId) ? h.id : dest;
 }
 
+/** Whether a statement of this layout kind can go to a destination: loan statements to loan splits, credit card
+ *  statements to credit card accounts, account statements to the other accounts. */
+export const fitsKind = (kind: string, d: { kind: string; card?: boolean }) => (kind === 'loan' ? d.kind === 'split' : d.kind === 'account' && !!(d as { card?: boolean }).card === (kind === 'card'));
+
 export async function guessDest(userId: string, householdId: string, lenderName: string | null, kind: string | null, read: Read | null) {
   const all = await destinations(userId, householdId);
-  let c = all.filter((d) => (!lenderName || d.lender.toLowerCase() === lenderName.toLowerCase()) && (!kind || (kind === 'loan' ? d.kind === 'split' : d.kind === 'account')));
+  let c = all.filter((d) => (!lenderName || d.lender.toLowerCase() === lenderName.toLowerCase()) && (!kind || fitsKind(kind, d)));
   if (read && read.acct) { const { hits } = byAccount(c, read.acct); if (hits.length >= 1 && hits.length < c.length) c = hits; }
   if (c.length > 1 && read && read.period) {
     // a loan or account that already has this exact period wins (the duplicate is then reported); otherwise the one whose latest statement ends just before this one starts
@@ -101,7 +105,7 @@ export async function saveImport(o: { fileId: string; destId: string; userId: st
   const read = m.read;
   if (!read.period || read.opening == null || read.closing == null) throw new Error('The statement period or balances could not be read.');
   if (!read.ok) throw new Error('This file does not add up with the matched layout: ' + read.checks.filter((c) => !c.ok).map((c) => c.text).join('. '));
-  if ((m.layout!.kind === 'loan') !== (dest.kind === 'split')) throw new Error(m.layout!.kind === 'loan' ? 'This is a loan statement. Choose a loan.' : 'This is an account statement. Choose an account.');
+  if (!fitsKind(m.layout!.kind, dest)) throw new Error(m.layout!.kind === 'loan' ? 'This is a loan statement. Choose a loan.' : m.layout!.kind === 'card' ? 'This is a credit card statement. Choose a credit card account.' : 'This is an account statement. Choose an account that is not a credit card.');
   const where = dest.kind === 'split' ? { splitId: dest.id } : { accountId: dest.id };
   const end = new Date(read.period.end + 'T00:00:00Z'), start = new Date(read.period.start + 'T00:00:00Z');
   const dup = await db.statement.findFirst({ where: { ...where, deletedAt: null, periodEnd: end } });

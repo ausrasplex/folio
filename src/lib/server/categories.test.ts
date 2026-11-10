@@ -52,3 +52,13 @@ describe('category colours', () => {
     expect(colorOf('Holidays', {})).toBe(picked); // the same every time
   });
 });
+
+describe('credit card wording', () => {
+  it('treats card payments as transfers, card interest as fees and refunds as not income', () => {
+    expect(categorize('CC AUTO PAYMENT 4601845001092611FD', 0)).toBe('Transfers');
+    expect(categorize('PAYMENT RECEIVED - THANK YOU', 500)).toBe('Transfers');
+    expect(categorize('INTEREST CHARGED ON PURCHASES', 0)).toBe('Fees');
+    expect(categorize('REFUND AMAZON MARKETPLACE', 44.56)).toBe('Other');
+    expect(categorize('JC SERVICES AUST PAY', 4709.9)).toBe('Income');
+  });
+});

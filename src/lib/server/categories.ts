@@ -13,6 +13,10 @@ export type TxnLike = { description: string; debit: number; credit: number; acco
 const GUESSES: [RegExp, string][] = [
   // first: money moved between accounts (banks label these INTERNET WITHDRAWAL and the like)
   [/transfer|\btfr\b|repaymt|repayment|withdrawal/, 'Transfers'],
+  // paying off a credit card from another account (CC AUTO PAYMENT, CREDIT CARD PAYMENT) moves money too
+  [/\bcc\b.*payment|credit card|card payment/, 'Transfers'],
+  // a credit card's own interest and charges
+  [/interest|cash advance/, 'Fees'],
   [/shell|bp|caltex|ampol|7-eleven|fuel|petrol|united petroleum/, 'Fuel'],
   [/woolworths|coles|aldi|iga|grocer|supermarket|harris farm/, 'Groceries'],
   [/cafe|coffee|restaurant|uber eats|menulog|doordash|mcdonald|kfc|pizza|bar |pub /, 'Food and dining'],
@@ -33,7 +37,14 @@ export const BUILT_IN: { name: string; kind: CategoryKind }[] = [
 /** The built-in guess from a description alone. */
 export function categorize(desc: string, credit: number) {
   const d = desc.toLowerCase();
-  if (credit > 0) return /interest/.test(d) ? 'Interest' : /transfer|tfr|deposit/.test(d) ? 'Transfers' : 'Income';
+  if (credit > 0) {
+    if (/interest/.test(d)) return 'Interest';
+    // a payment into a credit card (PAYMENT RECEIVED - THANK YOU) is money moved from another account
+    if (/transfer|tfr|deposit|payment|thank you/.test(d)) return 'Transfers';
+    // a refund gives money back for spending; it is not income
+    if (/refund|reversal|returned/.test(d)) return 'Other';
+    return 'Income';
+  }
   for (const [re, c] of GUESSES) if (re.test(d)) return c;
   return 'Other';
 }
