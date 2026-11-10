@@ -1,21 +1,21 @@
 <?xml version="1.0"?>
 <Container version="2">
   <Name>Folio</Name>
-  <Repository>ghcr.io/YOUR_GITHUB_USERNAME/folio:latest</Repository>
-  <Registry>https://github.com/YOUR_GITHUB_USERNAME/folio/pkgs/container/folio</Registry>
+  <Repository>ghcr.io/ausrasplex/folio:latest</Repository>
+  <Registry>https://github.com/ausrasplex/folio/pkgs/container/folio</Registry>
   <Network>bridge</Network>
   <MyIP/>
   <Shell>sh</Shell>
   <Privileged>false</Privileged>
-  <Support>https://github.com/YOUR_GITHUB_USERNAME/folio/issues</Support>
-  <Project>https://github.com/YOUR_GITHUB_USERNAME/folio</Project>
+  <Support>https://github.com/ausrasplex/folio/issues</Support>
+  <Project>https://github.com/ausrasplex/folio</Project>
   <Overview>Folio: a self-hosted home loan statement monitor and payoff forecaster. Import your loan and account statements, check the interest the bank charged, track offsets, spending by category and credit cards, and see when the loan is paid off.&#xD;
 &#xD;
 Needs a PostgreSQL database (for example the official postgres image, version 16). Set the Database URL and a Secret key before the first start. See unraid/README.md in the project for the step-by-step setup.</Overview>
   <Category>Productivity: Tools:</Category>
   <WebUI>http://[IP]:[PORT:3000]/</WebUI>
-  <TemplateURL>https://raw.githubusercontent.com/YOUR_GITHUB_USERNAME/folio/main/unraid/folio.xml</TemplateURL>
-  <Icon>https://raw.githubusercontent.com/YOUR_GITHUB_USERNAME/folio/main/unraid/folio-icon.png</Icon>
+  <TemplateURL>https://raw.githubusercontent.com/ausrasplex/folio/HEAD/unraid/folio.xml</TemplateURL>
+  <Icon>https://raw.githubusercontent.com/ausrasplex/folio/HEAD/unraid/folio-icon.png</Icon>
   <ExtraParams>--restart=unless-stopped</ExtraParams>
   <PostArgs/>
   <CPUset/>

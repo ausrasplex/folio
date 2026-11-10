@@ -5,7 +5,10 @@ Folio runs on Unraid as two containers: PostgreSQL for the data, and Folio itsel
 ## What you need
 
 - Unraid 6.12 or later, with Docker turned on.
-- The Folio image. It is built by GitHub Actions (`.github/workflows/docker.yml`) and published to `ghcr.io/<your GitHub username>/folio` whenever `main` or a version tag (`v1.2.3`) is pushed. To build it yourself, see [Building the image yourself](#building-the-image-yourself).
+- The Folio image, `ghcr.io/ausrasplex/folio`. GitHub Actions (`.github/workflows/docker.yml`) builds it on every push. A push to the repo's default branch publishes `latest`, any other branch publishes an image named after the branch, and a version tag (`v1.2.3`) publishes `1.2.3` and `1.2`. Its progress is under the repo's **Actions** tab. To build it yourself, see [Building the image yourself](#building-the-image-yourself).
+- While the repo is private, so is the image. Do one of these:
+  - **Make only the image public.** On GitHub, open your profile › **Packages** › **folio** › **Package settings** › **Change visibility** › **Public**. The code stays private, and the image holds only the built app, with no `.env` and no data. Unraid can then pull it with no sign-in.
+  - **Or let Unraid sign in.** On GitHub, make a classic personal access token with only the `read:packages` scope (**Settings** › **Developer settings** › **Personal access tokens**). Then, in the Unraid terminal, run `docker login ghcr.io -u ausrasplex` and paste the token as the password. Unraid remembers it, and updates keep working.
 
 ## 1. Start PostgreSQL
 
@@ -35,14 +38,16 @@ Keep a copy somewhere safe, such as your password manager. Never change it: a ba
 
 ## 3. Add the template
 
-In the Unraid terminal:
+Copy `unraid/folio.xml` from the project to Unraid's flash share as `\\tower\flash\config\plugins\dockerMan\templates-user\my-Folio.xml`. That is `/boot/config/plugins/dockerMan/templates-user/my-Folio.xml` in the Unraid terminal. Replace `tower` with your server's name or IP address.
+
+If the repo is public, you can download the template in the Unraid terminal instead:
 
 ```
 wget -O /boot/config/plugins/dockerMan/templates-user/my-Folio.xml \
-  https://raw.githubusercontent.com/<your GitHub username>/folio/main/unraid/folio.xml
+  https://raw.githubusercontent.com/ausrasplex/folio/HEAD/unraid/folio.xml
 ```
 
-You can also copy `unraid/folio.xml` to that folder over the network share (`\\tower\flash\config\plugins\dockerMan\templates-user\`, named `my-Folio.xml`).
+The template's icon is downloaded from GitHub too, so it shows as blank while the repo is private. Nothing else depends on it.
 
 Then go to **Docker** › **Add Container** and choose **Folio** from the **Template** list.
 
