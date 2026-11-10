@@ -308,7 +308,7 @@ function buildAlerts(b: Built) {
     const late = Math.round((+now - +due) / DAY);
     if (late > missDays) out.push({ id: 'missing-' + src.key + '-' + iso(due), title: 'Statement not imported', tag: 'Action', tagStyle: warn, text: 'The statement for ' + src.name + ' ending about ' + dLong(due) + ' has not been imported yet.', when: late + ' days late', href: '/statements', at: iso(due) });
   }
-  if (on('rate')) for (const l of b.loans) for (const s of l.splits) for (const r of s.rates) if (!r.confirmed) out.push({ id: 'rate-' + s.id + '-' + r.date, title: 'Rate change to confirm', tag: 'Review', tagStyle: info, text: 'A statement for ' + l.name + ' shows ' + r.rate.toFixed(2) + '% from ' + dLong(new Date(r.date + 'T00:00:00Z')) + '. Confirm it so forecasts stay accurate.', when: dLong(new Date(r.date + 'T00:00:00Z')), href: '/loan?id=' + l.id + '#details', at: r.date });
+  if (on('rate')) for (const l of b.loans) for (const s of l.splits) for (const r of s.rates) if (!r.confirmed) out.push({ id: 'rate-' + s.id + '-' + r.date, title: 'Rate change to confirm', tag: 'Review', tagStyle: info, text: 'A statement for ' + l.name + ' shows ' + r.rate.toFixed(2) + '% from ' + dLong(new Date(r.date + 'T00:00:00Z')) + '. Confirm it so forecasts stay accurate.', when: dLong(new Date(r.date + 'T00:00:00Z')), href: '/loan?id=' + l.id + '#changes', at: r.date });
   // a starting rate that is still the one typed in when the loan was added, where the first statement shows another
   if (on('rate')) for (const l of b.loans) if (!l.archived) for (const s of l.splits) if (s.startOffer) {
     const o = s.startOffer;
